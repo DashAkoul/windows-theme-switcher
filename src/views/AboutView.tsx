@@ -1,0 +1,51 @@
+// About view - shown when the tray "About" menu item is clicked.
+
+import { useI18n } from "../i18n";
+import { api } from "../api";
+
+export function AboutView({ onBack }: { onBack: () => void }) {
+  const { t } = useI18n();
+
+  return (
+    <div className="content">
+      <div className="anim" style={{ maxWidth: 560 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
+          <img src="/app-icon.svg" width={64} height={64} alt="" draggable={false} />
+          <div>
+            <h2 className="page-title" style={{ margin: 0 }}>
+              {t("app.name")}
+            </h2>
+            <p className="muted" style={{ margin: 0 }}>
+              {t("app.tagline")}
+            </p>
+          </div>
+        </div>
+
+        <p style={{ color: "var(--text-secondary)", userSelect: "text" }}>{t("about.desc")}</p>
+
+        <div className="card">
+          <div className="card-row">
+            <div className="card-row-text">
+              <p className="card-title">{t("about.version")}</p>
+            </div>
+            <span className="muted">1.0.0</span>
+          </div>
+        </div>
+
+        <div className="btn-row mt-16">
+          <button className="btn" onClick={onBack}>
+            {t("common.close")}
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              void api.openUrl("https://github.com/DashAkoul/windows-theme-switcher");
+            }}
+          >
+            {t("about.github")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
