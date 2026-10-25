@@ -308,4 +308,20 @@ mod tests {
         // Should never panic even if Explorer is busy.
         let _ = broadcast_theme_change();
     }
+
+    #[test]
+    fn apply_current_state_is_idempotent() {
+        // Build a profile from the current Windows state and apply it:
+        // Windows must end up in exactly the same state (no visible change).
+        // This exercises the full write path (Personalize keys, DWM accent,
+        // wallpaper, broadcast) without changing anything.
+        let profile = profile_from_current_state("idempotent").unwrap();
+        let before = read_theme_state().unwrap();
+        let after = apply_profile(&profile).unwrap();
+        assert_eq!(before.app_mode_light, after.app_mode_light);
+        assert_eq!(before.system_mode_light, after.system_mode_light);
+        assert_eq!(before.transparency, after.transparency);
+        assert_eq!(before.accent_color, after.accent_color);
+        assert_eq!(before.wallpaper, after.wallpaper);
+    }
 }
