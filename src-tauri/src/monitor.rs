@@ -16,7 +16,8 @@ use tauri::{Emitter, Manager};
 use windows::Win32::Foundation::{GetLastError, SetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM, WIN32_ERROR};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
-    CreateEventW, CreateMutexW, EVENT_MODIFY_STATE, OpenEventW, SetEvent, WaitForSingleObject,
+    CreateEventW, CreateMutexW, OpenEventW, SetEvent, SYNCHRONIZATION_ACCESS_RIGHTS,
+    WaitForSingleObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowW, GetMessageW, PostMessageW,
@@ -248,21 +249,23 @@ pub fn ensure_single_instance() -> InstanceCheck {
 
     let last_error = unsafe { GetLastError() };
     if last_error == ERROR_ALREADY_EXISTS {
-        // Another instance owns the mutex. Wake it and bail out.
-        let hwnd = unsafe {
-            FindWindowW(
-                windows::core::PCWSTR::null(),
-                w!("WTS Signal"),
-            )
+        // Another instance owns the mutex. Wake it - retrying while it is
+        // still starting up (its signal window/event may not exist yet) -
+        // then bail out.
+        for _ in 0..50 {
+            let hwnd = unsafe { FindWindowW(windows::core::PCWSTR::null(), w!("WTS Signal")) }.ok();
+            if let Some(hwnd) = hwnd {
+                let msg_id = wake_message_id();
+                let _ = unsafe { PostMessageW(Some(hwnd), msg_id, WPARAM(0), LPARAM(0)) };
+                return InstanceCheck::AlreadyRunning;
+            }
+            if wake_via_event() {
+                return InstanceCheck::AlreadyRunning;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
         }
-        .ok();
-        if let Some(hwnd) = hwnd {
-            let msg_id = wake_message_id();
-            let _ = unsafe { PostMessageW(Some(hwnd), msg_id, WPARAM(0), LPARAM(0)) };
-        } else {
-            // Fallback: try the named event (window may still be starting).
-            wake_via_event();
-        }
+        // Could not signal the other instance (it may be shutting down);
+        // exit anyway to preserve single-instance semantics.
         return InstanceCheck::AlreadyRunning;
     }
 
@@ -275,9 +278,10 @@ pub fn ensure_single_instance() -> InstanceCheck {
 
     // 3. Thread that waits on the wake event (fallback activation path).
     std::thread::spawn(|| loop {
-        let event = unsafe {
-            OpenEventW(EVENT_MODIFY_STATE, false, w!("Local\\WindowsThemeSwitcher_Wake"))
-        };
+        // SYNCHRONIZE is required to wait on the handle; EVENT_MODIFY_STATE
+        // is required to signal it.
+        let access = SYNCHRONIZATION_ACCESS_RIGHTS(0x0010_0000 | 0x0002);
+        let event = unsafe { OpenEventW(access, false, w!("Local\\WindowsThemeSwitcher_Wake")) };
         let event = match event {
             Ok(e) => e,
             Err(_) => {
@@ -288,6 +292,10 @@ pub fn ensure_single_instance() -> InstanceCheck {
         let r = unsafe { WaitForSingleObject(event, u32::MAX) };
         if r.0 == 0 {
             show_main_window();
+        } else {
+            // The wait failed (e.g. access denied). Sleep before retrying so
+            // a failing wait can never turn into a busy loop.
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
         unsafe {
             let _ = windows::Win32::Foundation::CloseHandle(event);
@@ -298,13 +306,24 @@ pub fn ensure_single_instance() -> InstanceCheck {
 }
 
 /// Signal the running instance through the named event (fallback path).
-fn wake_via_event() {
-    let event = unsafe { OpenEventW(EVENT_MODIFY_STATE, false, w!("Local\\WindowsThemeSwitcher_Wake")) };
-    if let Ok(event) = event {
-        let _ = unsafe { SetEvent(event) };
-        unsafe {
-            let _ = windows::Win32::Foundation::CloseHandle(event);
+/// Returns `true` when the event was signaled successfully.
+fn wake_via_event() -> bool {
+    let event = unsafe {
+        OpenEventW(
+            SYNCHRONIZATION_ACCESS_RIGHTS(0x0002),
+            false,
+            w!("Local\\WindowsThemeSwitcher_Wake"),
+        )
+    };
+    match event {
+        Ok(event) => {
+            let signaled = unsafe { SetEvent(event) }.is_ok();
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(event);
+            }
+            signaled
         }
+        Err(_) => false,
     }
 }
 
