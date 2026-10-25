@@ -45,6 +45,15 @@ pub struct AppState {
 
 /// Entry point called by `main.rs`.
 pub fn run() {
+    // Native singletons + signal window are set up BEFORE any Tauri
+    // initialization: a second launch must exit (almost) immediately,
+    // without creating a webview, and must wake the running instance.
+    let first_instance = monitor::ensure_single_instance();
+    monitor::start_monitor_thread();
+    if let monitor::InstanceCheck::AlreadyRunning = first_instance {
+        std::process::exit(0);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -78,12 +87,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     logger::init(config_dir.join("app.log"));
     logger::info("=== Windows Theme Switcher starting ===");
 
-    // Single instance: if another copy is already running, wake it and exit.
-    if let monitor::InstanceCheck::AlreadyRunning = monitor::ensure_single_instance() {
-        logger::info("another instance is already running; exiting");
-        std::process::exit(0);
-    }
-
     // Load configuration.
     let config = config::AppConfig::load(&config_path).map_err(|e| {
         logger::error(format!("failed to load config: {e}"));
@@ -113,9 +116,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         logger::error(format!("failed to build tray icon: {e}"));
         e.to_string()
     })?;
-
-    // Native message pump (external theme changes + instance wake-up).
-    monitor::start_monitor_thread();
 
     // Main window: effects, visibility and close-to-tray behavior.
     if let Some(window) = app.get_webview_window("main") {
