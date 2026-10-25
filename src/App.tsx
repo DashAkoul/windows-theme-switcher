@@ -1,8 +1,7 @@
-// App root: loads state, applies the UI theme, wires events and routes
+// App root: loads state once, applies the UI theme, wires events and routes
 // between Onboarding, Settings and About.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TitleBar } from "./components/TitleBar";
 import { ErrorToast, type ToastData } from "./components/Toast";
 import { Onboarding, hideToTray } from "./views/Onboarding";
@@ -10,14 +9,76 @@ import { SettingsView } from "./views/SettingsView";
 import { AboutView } from "./views/AboutView";
 import { LanguageProvider, useI18n } from "./i18n";
 import { api, onSystemThemeChanged, onThemeApplied, onThemeError, onTrayNavigate } from "./api";
-import type { AppConfig, AppStateResponse, Language, ThemeState } from "./types";
+import type { AppConfig, AppStateResponse, ThemeState } from "./types";
 
 type View = "onboarding" | "settings" | "about";
 
-function AppInner() {
-  const { t } = useI18n();
+export default function App() {
   const [state, setState] = useState<AppStateResponse | null>(null);
-  const [view, setView] = useState<View>("onboarding");
+
+  // ------------------------------------------------------------------
+  // Initial load
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    let disposed = false;
+    (async () => {
+      try {
+        const s = await api.getState();
+        if (disposed) return;
+        setState(s);
+
+        // Consume the pending route set by the tray menu.
+        if (s.pendingRoute) {
+          await api.clearPendingRoute();
+        }
+      } catch {
+        // A failed initial load falls back to the loading shell; event-based
+        // error toasts cover runtime failures.
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  if (!state) {
+    // Render a minimal shell until the state arrives (usually < 100ms).
+    return (
+      <LanguageProvider lang="en">
+        <LoadingShell />
+      </LanguageProvider>
+    );
+  }
+
+  return (
+    <LanguageProvider lang={state.config.settings.language}>
+      <AppShell state={state} setState={setState} />
+    </LanguageProvider>
+  );
+}
+
+function LoadingShell() {
+  const { t } = useI18n();
+  return (
+    <div className="app-shell">
+      <TitleBar title={t("app.name")} />
+      <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
+        <span className="muted">…</span>
+      </div>
+    </div>
+  );
+}
+
+interface ShellProps {
+  state: AppStateResponse;
+  setState: React.Dispatch<React.SetStateAction<AppStateResponse | null>>;
+}
+
+function AppShell({ state, setState }: ShellProps) {
+  const { t } = useI18n();
+  const [view, setView] = useState<View>(() =>
+    state.config.settings.onboardingCompleted ? "settings" : "onboarding"
+  );
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const toastId = useRef(0);
   const lastAction = useRef<(() => void) | null>(null);
@@ -39,32 +100,10 @@ function AppInner() {
   }, []);
 
   // ------------------------------------------------------------------
-  // Initial load + event wiring
+  // Event wiring
   // ------------------------------------------------------------------
   useEffect(() => {
-    let disposed = false;
     const unlisteners: (() => void)[] = [];
-
-    (async () => {
-      try {
-        const s = await api.getState();
-        if (disposed) return;
-        setState(s);
-        setView(s.config.settings.onboardingCompleted ? "settings" : "onboarding");
-
-        // Consume the pending route set by the tray menu.
-        if (s.pendingRoute === "about") {
-          setView("about");
-        } else if (s.pendingRoute === "settings") {
-          setView("settings");
-        }
-        if (s.pendingRoute) {
-          await api.clearPendingRoute();
-        }
-      } catch (e) {
-        pushToast((e as { message?: string }).message ?? String(e));
-      }
-    })();
 
     void onSystemThemeChanged((current: ThemeState) => {
       setState((prev) => (prev ? { ...prev, current } : prev));
@@ -77,7 +116,7 @@ function AppInner() {
     void onThemeError((payload) => {
       pushToast(payload.message);
       lastAction.current = () => {
-        void api.toggleTheme().catch((e) => pushToast((e as { message?: string }).message ?? String(e)));
+        void api.toggleTheme().catch(() => {});
       };
     }).then((off) => unlisteners.push(off));
 
@@ -87,16 +126,14 @@ function AppInner() {
     }).then((off) => unlisteners.push(off));
 
     return () => {
-      disposed = true;
       unlisteners.forEach((off) => off());
     };
-  }, [pushToast]);
+  }, [pushToast, setState]);
 
   // ------------------------------------------------------------------
   // Theme + language application
   // ------------------------------------------------------------------
   useEffect(() => {
-    if (!state) return;
     const settings = state.config.settings;
     const current = state.current;
 
@@ -116,7 +153,6 @@ function AppInner() {
   // ------------------------------------------------------------------
   const finishOnboarding = useCallback(
     async (openSettings: boolean) => {
-      if (!state) return;
       const config: AppConfig = {
         ...state.config,
         settings: { ...state.config.settings, onboardingCompleted: true },
@@ -134,12 +170,15 @@ function AppInner() {
         hideToTray();
       }
     },
-    [state, pushToast]
+    [state, pushToast, setState]
   );
 
-  const onConfigChange = useCallback((config: AppConfig) => {
-    setState((prev) => (prev ? { ...prev, config } : prev));
-  }, []);
+  const onConfigChange = useCallback(
+    (config: AppConfig) => {
+      setState((prev) => (prev ? { ...prev, config } : prev));
+    },
+    [setState]
+  );
 
   const onError = useCallback(
     (message: string) => {
@@ -151,65 +190,32 @@ function AppInner() {
     [pushToast]
   );
 
-  if (!state) {
-    return (
-      <div className="app-shell">
-        <TitleBar title={t("app.name")} />
-        <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
-          <span className="muted">…</span>
-        </div>
-      </div>
-    );
-  }
-
-  const langKey: Language = state.config.settings.language;
-
   return (
-    <LanguageProvider lang={langKey}>
-      <div className="app-shell">
-        <TitleBar title={t("app.name")} />
-        {view === "onboarding" && <Onboarding onFinish={finishOnboarding} />}
-        {view === "settings" && (
-          <SettingsView
-            state={state}
-            onConfigChange={onConfigChange}
-            onError={onError}
-            onCurrentChange={(current) =>
-              setState((prev) => (prev ? { ...prev, current } : prev))
-            }
+    <div className="app-shell">
+      <TitleBar title={t("app.name")} />
+      {view === "onboarding" && <Onboarding onFinish={finishOnboarding} />}
+      {view === "settings" && (
+        <SettingsView
+          state={state}
+          onConfigChange={onConfigChange}
+          onError={onError}
+          onCurrentChange={(current) =>
+            setState((prev) => (prev ? { ...prev, current } : prev))
+          }
+        />
+      )}
+      {view === "about" && <AboutView onBack={() => setView("settings")} />}
+
+      <div className="toast-container">
+        {toasts.map((toast) => (
+          <ErrorToast
+            key={toast.id}
+            toast={toast}
+            onDismiss={dismissToast}
+            onRetry={retry}
           />
-        )}
-        {view === "about" && <AboutView onBack={() => setView("settings")} />}
-
-        <div className="toast-container">
-          {toasts.map((toast) => (
-            <ErrorToast
-              key={toast.id}
-              toast={toast}
-              onDismiss={dismissToast}
-              onRetry={retry}
-            />
-          ))}
-        </div>
+        ))}
       </div>
-    </LanguageProvider>
-  );
-}
-
-export default function App() {
-  // The language is only known after the first state load; render the
-  // provider at the inner level and keep a stable outer shell.
-  const [lang, setLang] = useState<Language>("en");
-  useEffect(() => {
-    void getCurrentWindow(); // keep the window handle warm
-    void api
-      .getState()
-      .then((s) => setLang(s.config.settings.language))
-      .catch(() => {});
-  }, []);
-  return (
-    <LanguageProvider lang={lang}>
-      <AppInner />
-    </LanguageProvider>
+    </div>
   );
 }

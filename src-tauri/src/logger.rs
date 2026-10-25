@@ -111,8 +111,8 @@ mod tests {
 
     #[test]
     fn civil_date_known_values() {
-        // 2026-10-25 is day 20,467 since epoch
-        assert_eq!(civil_from_days(20_467), (2026, 10, 25));
+        // 2026-10-25 is day 20,751 since the Unix epoch
+        assert_eq!(civil_from_days(20_751), (2026, 10, 25));
         // 1970-01-01
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         // 2000-03-01 (leap year edge)
