@@ -2,6 +2,7 @@
 // the profile's colors, shown over the profile's wallpaper (if any).
 
 import { useI18n } from "../i18n";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { ThemeProfile } from "../types";
 
 interface Props {
@@ -32,7 +33,7 @@ export function ThemePreview({ profile }: Props) {
 
   const desktopStyle: React.CSSProperties = {
     background: profile.wallpaper
-      ? `url("asset://localhost/${encodeURI(profile.wallpaper).replace(/#/g, "%23")}") center / cover no-repeat`
+      ? `url("${convertFileSrc(profile.wallpaper)}") center / cover no-repeat`
       : "linear-gradient(135deg, #5b7c99, #2c3e50)",
   };
 

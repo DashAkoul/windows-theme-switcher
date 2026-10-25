@@ -8,9 +8,8 @@ src-tauri/target/
 # Tauri generated schemas (regenerated on build)
 src-tauri/gen/
 
-# Signing keys - NEVER commit private keys
+# Signing keys - NEVER commit private keys (the .pub file is public and safe)
 .tauri/*.key
-.tauri/*.key.*
 
 # Logs
 *.log

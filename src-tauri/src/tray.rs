@@ -285,6 +285,6 @@ mod tests {
     #[test]
     fn default_state_is_dark() {
         assert!(!default_state().app_mode_light);
-        assert_eq!(ThemeMode::Light.as_str(), "light");
+        assert_eq!(crate::config::ThemeMode::Light.as_str(), "light");
     }
 }
