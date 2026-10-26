@@ -29,7 +29,8 @@ pub fn log_path() -> Option<PathBuf> {
 }
 
 fn timestamp() -> String {
-    // Local time formatting without extra crates: use UTC offset-free stamp.
+    // Timestamps are UTC (no timezone crate). Keep that in mind when
+    // correlating log lines with local-time observations.
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -60,14 +61,29 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+/// Rotate the log once it grows past this size, so a long-running tray app
+/// cannot fill the user's profile with log lines.
+const MAX_LOG_BYTES: u64 = 256 * 1024;
+
 fn write_line(level: &str, message: &str) {
     let path = match log_path() {
         Some(p) => p,
         None => return,
     };
+    rotate_if_needed(&path);
     let line = format!("{} [{}] {}\n", timestamp(), level, message);
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = file.write_all(line.as_bytes());
+    }
+}
+
+/// Keep the previous generation at `<log>.1` and start a fresh file.
+fn rotate_if_needed(path: &Path) {
+    let too_big = std::fs::metadata(path)
+        .map(|m| m.len() > MAX_LOG_BYTES)
+        .unwrap_or(false);
+    if too_big {
+        let _ = std::fs::rename(path, path.with_extension("log.1"));
     }
 }
 
@@ -82,8 +98,6 @@ pub fn warn(message: impl AsRef<str>) {
 pub fn error(message: impl AsRef<str>) {
     write_line("ERROR", message.as_ref());
 }
-
-/// Read the tail of the log file (last `max_lines` lines). Used by the
 
 /// Ensure a fresh file handle exists (used in tests).
 #[allow(dead_code)]
@@ -114,14 +128,20 @@ mod tests {
     }
 
     #[test]
-    fn tail_returns_last_lines() {
-        let dir = std::env::temp_dir().join("wts_logger_test");
+    fn oversized_log_is_rotated() {
+        let dir = std::env::temp_dir().join("wts_logger_rotate");
         let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("test.log");
-        let _ = std::fs::write(&path, "a\nb\nc\nd\n");
-        let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = content.lines().collect();
-        let start = lines.len().saturating_sub(2);
-        assert_eq!(lines[start..].join("\n"), "c\nd");
+        let path = dir.join("rotate.log");
+        let old = dir.join("rotate.log.1");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&old);
+
+        // Just over the cap.
+        std::fs::write(&path, vec![b'x'; (MAX_LOG_BYTES + 1) as usize]).unwrap();
+        rotate_if_needed(&path);
+        assert!(old.exists());
+        assert!(!path.exists());
+
+        let _ = std::fs::remove_file(&old);
     }
 }

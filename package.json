@@ -1,7 +1,7 @@
 {
   "name": "windows-theme-switcher",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Switch Windows Light/Dark theme with one click from the system tray",
   "license": "GPL-3.0-only",
   "author": "DashAkoul",

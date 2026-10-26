@@ -42,11 +42,10 @@ function mockState(): AppStateResponse {
       accentColor: null,
       wallpaper: null,
     },
-    isWindows11: true,
-    version: "2.0.0",
+    // Only shown in the browser preview; the real version comes from Rust.
+    version: "dev",
   };
 }
-
 export const api = {
   getState(): Promise<AppStateResponse> {
     if (!isTauri()) return Promise.resolve(mockState());
@@ -87,6 +86,17 @@ export function onThemeChanged(cb: (state: ThemeState) => void): Promise<() => v
     offs.push(off);
   });
   return Promise.all([a, b]).then(() => () => offs.forEach((off) => off()));
+}
+
+/**
+ * Subscribe to failures reported by the tray (a left click or a menu item
+ * can fail while the panel is open; without this they were only logged).
+ */
+export function onThemeError(cb: (message: string) => void): Promise<() => void> {
+  if (!isTauri()) return Promise.resolve(() => {});
+  return listen<{ code: string; message: string }>("theme-error", (e) =>
+    cb(e.payload.message)
+  );
 }
 
 /** Report a human-readable error message from a command rejection. */
