@@ -29,3 +29,6 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# WorkBuddy AI project memory (local only)
+.workbuddy-ai/

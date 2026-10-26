@@ -32,6 +32,26 @@ export function AboutView({ onBack }: { onBack: () => void }) {
           </div>
         </div>
 
+        <div className="card">
+          <div className="card-row">
+            <div className="card-row-text">
+              <p className="card-title">GNU GPL v3.0</p>
+              <p className="card-desc">
+                Free / copyleft software — you may use, study, share and modify
+                it, provided derivative works stay under the same license.
+              </p>
+            </div>
+            <button
+              className="btn"
+              onClick={() => {
+                void api.openUrl("https://www.gnu.org/licenses/gpl-3.0.html");
+              }}
+            >
+              GPL-3.0
+            </button>
+          </div>
+        </div>
+
         <div className="btn-row mt-16">
           <button className="btn" onClick={onBack}>
             {t("common.close")}

@@ -3,12 +3,14 @@
 
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "../api";
 
 export function TitleBar({ title }: { title: string }) {
   const [maximized, setMaximized] = useState(false);
-  const appWindow = getCurrentWindow();
+  const appWindow = isTauri() ? getCurrentWindow() : null;
 
   useEffect(() => {
+    if (!appWindow) return;
     let unlisten: (() => void) | undefined;
     appWindow
       .isMaximized()
@@ -35,7 +37,7 @@ export function TitleBar({ title }: { title: string }) {
         <button
           className="titlebar-btn"
           title="Minimize"
-          onClick={() => appWindow.minimize()}
+          onClick={() => appWindow?.minimize()}
         >
           <svg viewBox="0 0 12 12">
             <line x1="1" y1="10.5" x2="11" y2="10.5" stroke="currentColor" strokeWidth="1.2" />
@@ -44,7 +46,7 @@ export function TitleBar({ title }: { title: string }) {
         <button
           className="titlebar-btn"
           title={maximized ? "Restore" : "Maximize"}
-          onClick={() => appWindow.toggleMaximize()}
+          onClick={() => appWindow?.toggleMaximize()}
         >
           {maximized ? (
             <svg viewBox="0 0 12 12">
@@ -60,7 +62,7 @@ export function TitleBar({ title }: { title: string }) {
         <button
           className="titlebar-btn close"
           title="Close"
-          onClick={() => appWindow.close()}
+          onClick={() => appWindow?.close()}
         >
           <svg viewBox="0 0 12 12">
             <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" stroke="currentColor" strokeWidth="1.2" />

@@ -351,3 +351,10 @@ pub fn reset_config(app: AppHandle) -> AppResult<AppConfig> {
 pub fn config_path(app: AppHandle) -> PathBuf {
     app.state::<AppState>().config_path.clone()
 }
+
+/// Write a message from the frontend into the app log (used by the UI
+/// self-test to report layout/CSS diagnostics).
+#[tauri::command]
+pub fn log_debug(message: String) {
+    crate::logger::info(format!("[ui] {message}"));
+}
