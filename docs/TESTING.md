@@ -33,7 +33,7 @@ npm run tauri build
 ```
 
 خروجی:
-- `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.0.1_x64-setup.exe`
+- `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.1.0_x64-setup.exe`
 - `src-tauri/target/release/windows-theme-switcher.exe` (نسخه portable)
 
 ## 4. تست دستی (Smoke Test)
