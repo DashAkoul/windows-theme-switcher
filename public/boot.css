@@ -1,0 +1,30 @@
+/* Boot styles.
+ *
+ * Loaded as a normal stylesheet (not an inline <style> block) so the
+ * production CSP can forbid inline styles entirely. It must stay tiny and
+ * dependency-free: its only job is to paint a readable surface before the
+ * React bundle runs, so the panel never flashes white on a dark desktop.
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #f3f3f3;
+  color: #1a1a1a;
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+}
+
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+  background: #202020;
+  color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) body {
+    background: #202020;
+    color: #ffffff;
+  }
+}

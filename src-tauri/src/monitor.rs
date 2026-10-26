@@ -100,19 +100,77 @@ fn wake_message_id() -> u32 {
     })
 }
 
-/// Read a NUL-terminated wide string from a raw pointer (best effort).
-fn wide_ptr_to_string(ptr: *const u16) -> String {
+/// How many bytes starting at `ptr` are safely readable in this process.
+///
+/// `WM_SETTINGCHANGE` carries a string pointer in `lParam`, and the message
+/// can be sent by *any* process - including one that passes a bogus pointer.
+/// Dereferencing it blindly would be an access violation (crash) triggerable
+/// by any local program, so the region is validated with `VirtualQuery`
+/// before a single byte is read.
+fn readable_bytes(ptr: *const u16) -> usize {
+    use windows::Win32::System::Memory::{
+        VirtualQuery, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_EXECUTE_READ,
+        PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_READONLY, PAGE_READWRITE,
+        PAGE_WRITECOPY,
+    };
+
     if ptr.is_null() {
+        return 0;
+    }
+    let mut mbi = MEMORY_BASIC_INFORMATION::default();
+    let written = unsafe {
+        VirtualQuery(
+            Some(ptr as *const core::ffi::c_void),
+            &mut mbi,
+            std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+        )
+    };
+    if written == 0 || mbi.State != MEM_COMMIT {
+        return 0;
+    }
+    const READABLE: u32 = PAGE_READONLY.0
+        | PAGE_READWRITE.0
+        | PAGE_WRITECOPY.0
+        | PAGE_EXECUTE_READ.0
+        | PAGE_EXECUTE_READWRITE.0
+        | PAGE_EXECUTE_WRITECOPY.0;
+    if mbi.Protect.0 & READABLE == 0 {
+        return 0;
+    }
+
+    let start = ptr as usize;
+    let base = mbi.BaseAddress as usize;
+    if start < base {
+        return 0;
+    }
+    mbi.RegionSize.saturating_sub(start - base)
+}
+
+/// Read a NUL-terminated wide string from a raw pointer (best effort, and
+/// safe against pointers that do not belong to us).
+fn wide_ptr_to_string(ptr: *const u16) -> String {
+    /// Refuse to walk further than this (the strings Windows sends are short).
+    const MAX_CHARS: usize = 256;
+
+    let available = readable_bytes(ptr);
+    if available < std::mem::size_of::<u16>() {
         return String::new();
     }
+    let limit = (available / std::mem::size_of::<u16>()).min(MAX_CHARS);
+
     let mut len = 0usize;
-    unsafe {
-        while *ptr.add(len) != 0 && len < 256 {
-            len += 1;
+    while len < limit {
+        let ch = unsafe { *ptr.add(len) };
+        if ch == 0 {
+            break;
         }
-        let slice = std::slice::from_raw_parts(ptr, len);
-        String::from_utf16_lossy(slice)
+        len += 1;
     }
+    if len == 0 {
+        return String::new();
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+    String::from_utf16_lossy(slice)
 }
 
 /// Last theme state we reacted to. Windows broadcasts `WM_SETTINGCHANGE`
@@ -246,6 +304,12 @@ pub fn start_monitor_thread() {
         let mut msg = MSG::default();
         loop {
             let ret = unsafe { GetMessageW(&mut msg, None, 0, 0) };
+            if ret.0 == -1 {
+                // GetMessageW failed; dispatching the (uninitialised) MSG
+                // would be undefined behaviour.
+                crate::logger::error("GetMessageW failed; stopping the message pump");
+                break;
+            }
             if !ret.as_bool() {
                 break; // WM_QUIT
             }
@@ -318,9 +382,9 @@ pub fn ensure_single_instance() -> InstanceCheck {
     // 3. Thread that waits on the wake event (fallback activation path).
     //
     // The same thread doubles as the memory janitor: instead of waiting
-    // forever it wakes every 30 s and hands the resident pages back. That
-    // keeps an idle tray at a few hundred KB even if something touched pages
-    // in the meantime, and costs one syscall per interval.
+    // forever it wakes every few seconds and hands the resident pages back.
+    // That keeps an idle tray at a few hundred KB even if something touched
+    // pages in the meantime, and costs one syscall per interval.
     std::thread::spawn(|| loop {
         // SYNCHRONIZE is required to wait on the handle; EVENT_MODIFY_STATE
         // is required to signal it.
@@ -386,6 +450,15 @@ mod tests {
     #[test]
     fn wide_ptr_null_is_empty() {
         assert_eq!(wide_ptr_to_string(std::ptr::null()), "");
+    }
+
+    #[test]
+    fn wide_ptr_to_string_rejects_unreadable_pointers() {
+        // Any process can send WM_SETTINGCHANGE with an arbitrary lParam;
+        // reading those must return "" instead of faulting.
+        assert_eq!(wide_ptr_to_string(1 as *const u16), "");
+        assert_eq!(wide_ptr_to_string(usize::MAX as *const u16), "");
+        assert_eq!(wide_ptr_to_string(0xDEAD_BEEF as *const u16), "");
     }
 
     #[test]

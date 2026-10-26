@@ -19,7 +19,6 @@ use crate::AppState;
 pub struct AppStateResponse {
     pub config: AppConfig,
     pub current: ThemeState,
-    pub is_windows11: bool,
     pub version: String,
 }
 
@@ -92,6 +91,12 @@ pub fn toggle_autostart_inner(app: &AppHandle) -> AppResult<bool> {
         .save(&app_state.config_path);
 
     crate::logger::info(format!("autostart set to {new_value}"));
+
+    // The menu carries a checkmark for this setting, so rebuild it - without
+    // this the tick stayed on the old value until some other event happened.
+    let current = theme::read_theme_state().unwrap_or_else(|_| fallback_state());
+    crate::tray::refresh(app, &current);
+
     Ok(new_value)
 }
 
@@ -113,19 +118,12 @@ pub fn get_app_state(app: AppHandle) -> AppResult<AppStateResponse> {
     // neutral state and keep going.
     let current = theme::read_theme_state().unwrap_or_else(|e| {
         crate::logger::warn(format!("read_theme_state failed, using fallback: {e}"));
-        ThemeState {
-            app_mode_light: true,
-            system_mode_light: true,
-            transparency: true,
-            accent_color: None,
-            wallpaper: None,
-        }
+        fallback_state()
     });
 
     Ok(AppStateResponse {
         config,
         current,
-        is_windows11: crate::registry::read_windows_build() >= 22000,
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }
@@ -154,28 +152,35 @@ pub fn save_settings(app: AppHandle, settings: crate::config::Settings) -> AppRe
 
     let mut config = previous.clone();
     config.settings = settings;
-    config.save(&app_state.config_path)?;
 
-    // Sync autostart with the (possibly changed) setting.
+    // Apply the autostart change *before* persisting: if the Run key cannot
+    // be written (policy, endpoint protection) we must not leave a config
+    // file that claims autostart is on while the registry says otherwise.
     if let Ok(exe) = std::env::current_exe() {
         let exe_path = exe.to_string_lossy().to_string();
         crate::autostart::set_enabled(&exe_path, config.settings.start_with_windows)?;
     }
 
+    config.save(&app_state.config_path)?;
     *app_state.config.lock().unwrap_or_else(|e| e.into_inner()) = config.clone();
 
     if previous.settings.start_with_windows != config.settings.start_with_windows {
-        let current = theme::read_theme_state().unwrap_or_else(|_| ThemeState {
-            app_mode_light: true,
-            system_mode_light: true,
-            transparency: true,
-            accent_color: None,
-            wallpaper: None,
-        });
+        let current = theme::read_theme_state().unwrap_or_else(|_| fallback_state());
         crate::tray::refresh(&app, &current);
     }
 
     Ok(config)
+}
+
+/// Neutral state used when the registry cannot be read (never fails the UI).
+fn fallback_state() -> ThemeState {
+    ThemeState {
+        app_mode_light: true,
+        system_mode_light: true,
+        transparency: true,
+        accent_color: None,
+        wallpaper: None,
+    }
 }
 
 /// Open the Windows personalization settings page (colors).

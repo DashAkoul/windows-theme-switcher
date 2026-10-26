@@ -60,7 +60,9 @@ impl ThemeState {
 /// Example: `#0078D4` -> `0xFFD47800`.
 pub fn hex_to_abgr(hex: &str) -> Option<u32> {
     let h = hex.strip_prefix('#')?;
-    if h.len() != 6 {
+    // `is_ascii` also guarantees one byte per character, so the byte slicing
+    // below can never split a multi-byte character (which would panic).
+    if h.len() != 6 || !h.is_ascii() {
         return None;
     }
     let r = u8::from_str_radix(&h[0..2], 16).ok()?;
@@ -155,21 +157,39 @@ pub fn broadcast_theme_change() -> AppResult<()> {
 /// stack up into multiple broadcasts.
 static APPLYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// RAII guard for [`APPLYING`]: the flag is released even if the apply path
+/// returns early, so a single failure can never wedge every later attempt.
+struct ApplyGuard;
+
+impl ApplyGuard {
+    fn acquire() -> Option<Self> {
+        if APPLYING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            None
+        } else {
+            Some(Self)
+        }
+    }
+}
+
+impl Drop for ApplyGuard {
+    fn drop(&mut self) {
+        APPLYING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Apply a theme profile to Windows. All-or-nothing per setting: if a write
 /// fails, remaining writes are still attempted and the first error is
 /// returned after the broadcast.
 pub fn apply_profile(profile: &ThemeProfile) -> AppResult<ThemeState> {
     profile.validate()?;
 
-    if APPLYING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    let Some(_guard) = ApplyGuard::acquire() else {
         // Another apply is already in flight. Report the live state instead
         // of queuing a second (potentially very slow) notification.
         return read_theme_state();
-    }
+    };
 
-    let result = apply_profile_inner(profile);
-    APPLYING.store(false, std::sync::atomic::Ordering::SeqCst);
-    result
+    apply_profile_inner(profile)
 }
 
 fn apply_profile_inner(profile: &ThemeProfile) -> AppResult<ThemeState> {
@@ -301,6 +321,16 @@ mod tests {
         assert_eq!(hex_to_abgr("0078D4"), None);
         assert_eq!(hex_to_abgr("#12345"), None);
         assert_eq!(hex_to_abgr("#GGGGGG"), None);
+    }
+
+    #[test]
+    fn hex_to_abgr_rejects_non_ascii_without_panicking() {
+        // Six *bytes* that are not six characters used to slice mid-character
+        // and panic (which, with panic=abort, killed the whole app).
+        assert_eq!(hex_to_abgr("€€"), None);
+        assert_eq!(hex_to_abgr("#€€€"), None);
+        assert_eq!(hex_to_abgr("#Ä1234"), None);
+        assert_eq!(hex_to_abgr("#ÄÄÄ"), None);
     }
 
     #[test]

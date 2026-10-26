@@ -47,7 +47,7 @@ Dark   ──click tray icon──▶  Light
 | Config | JSON در AppData (atomic write) |
 | Installer | NSIS (per-user، بدون admin) |
 
-جزئیات: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · تست: [`docs/TESTING.md`](docs/TESTING.md)
+جزئیات: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · تست: [`docs/TESTING.md`](docs/TESTING.md) · بازبینی کد: [`docs/AUDIT.md`](docs/AUDIT.md)
 
 ## 📋 پیش‌نیازها (برای Build)
 
@@ -66,7 +66,7 @@ npm run build          # تایپ‌چک + بیلد فرانت‌اند
 npm run tauri:build    # ساخت نصب‌کننده NSIS
 ```
 
-خروجی: `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.1.0_x64-setup.exe`
+خروجی: `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.1.1_x64-setup.exe`
 
 ## 🖱️ استفاده
 
