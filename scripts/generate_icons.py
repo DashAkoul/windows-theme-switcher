@@ -195,17 +195,19 @@ def app_icon_pixel(x, y):
 def tray_moon_pixel(x, y):
     """Crescent moon, dark slate - readable on a LIGHT taskbar."""
     ink = (38, 38, 44)  # near-black slate
-    cx, cy = 0.5, 0.52
-    r = 0.34
-    cut_cx, cut_cy, cut_r = 0.66, 0.38, 0.30
-    if not (in_circle(x, y, cx, cy, r) and not in_circle(x, y, cut_cx, cut_cy, cut_r)):
-        return (0, 0, 0, 0)
-    # soft anti-aliased edges
+    cx, cy = 0.5, 0.5
+    r = 0.40
+    cut_cx, cut_cy, cut_r = 0.68, 0.34, 0.34
     d = math.hypot(x - cx, y - cy)
     dc = math.hypot(x - cut_cx, y - cut_cy)
-    outer = 1.0 - smoothstep(r - 0.015, r + 0.015, d)
-    inner = smoothstep(cut_r - 0.015, cut_r + 0.015, dc)
-    a = outer * (1.0 - inner)
+
+    # Coverage of the moon disc (anti-aliased edge)
+    outer = 1.0 - smoothstep(r - 0.02, r + 0.02, d)
+    # 1.0 when outside the "bite" circle, 0.0 inside it
+    keep = smoothstep(cut_r - 0.02, cut_r + 0.02, dc)
+    a = outer * keep
+    if a <= 0.001:
+        return (0, 0, 0, 0)
     return (ink[0], ink[1], ink[2], int(round(255 * a)))
 
 
