@@ -61,7 +61,7 @@ npm run tauri:build    # ساخت نصب‌کننده NSIS
 | تعامل | نتیجه |
 |---|---|
 | کلیک چپ روی آیکون tray | جابه‌جایی فوری Light ↔ Dark |
-| راست‌کلیک | Switch · Day/Night · Open panel · Start with Windows · Exit |
+| راست‌کلیک | Switch · Light / Dark · Open panel… · Start with Windows · Exit |
 | «Open panel…» | پاپ‌آپ کوچک با سوییچ Light/Dark |
 | بستن پاپ‌آپ | با کلیک بیرون یا ✕ — حافظه آزاد می‌شود |
 
