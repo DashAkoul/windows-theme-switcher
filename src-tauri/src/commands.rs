@@ -77,6 +77,9 @@ pub fn toggle_theme_inner(app: &AppHandle) -> AppResult<ThemeState> {
         let _ = config.save(&app_state.config_path);
     }
 
+    // Remember this state so the echo of our own WM_SETTINGCHANGE broadcast
+    // does not trigger a second tray rebuild.
+    crate::monitor::note_applied_state(&new_state);
     crate::tray::refresh(app, &new_state);
     let _ = app.emit("theme-applied", &new_state);
     Ok(new_state)
@@ -100,6 +103,7 @@ pub fn apply_profile_inner(app: &AppHandle, id: &str) -> AppResult<ThemeState> {
         let _ = config.save(&app_state.config_path);
     }
 
+    crate::monitor::note_applied_state(&new_state);
     crate::tray::refresh(app, &new_state);
     let _ = app.emit("theme-applied", &new_state);
     Ok(new_state)
@@ -133,7 +137,8 @@ pub fn show_window_with_route(app: &AppHandle, route: &str) {
     if let Ok(mut pending) = app_state.pending_route.lock() {
         *pending = Some(route.to_string());
     }
-    if let Some(window) = app.get_webview_window("main") {
+    // Creates the window (and its webview) on demand.
+    if let Some(window) = crate::ensure_main_window(app) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -159,7 +164,19 @@ pub fn get_app_state(app: AppHandle) -> AppResult<AppStateResponse> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let current = theme::read_theme_state()?;
+
+    // A single failed registry read must never brick the whole UI: fall back
+    // to a neutral state and keep going.
+    let current = theme::read_theme_state().unwrap_or_else(|e| {
+        crate::logger::warn(format!("read_theme_state failed, using fallback: {e}"));
+        ThemeState {
+            app_mode_light: true,
+            system_mode_light: true,
+            transparency: true,
+            accent_color: None,
+            wallpaper: None,
+        }
+    });
     let build = crate::registry::read_windows_build();
 
     Ok(AppStateResponse {
@@ -195,6 +212,15 @@ pub fn apply_profile(app: AppHandle, id: String) -> AppResult<ThemeState> {
 pub fn save_config(app: AppHandle, config: AppConfig) -> AppResult<AppConfig> {
     config.validate()?;
     let app_state = app.state::<AppState>();
+
+    // Snapshot the values the tray menu displays, so an unrelated toggle does
+    // not rebuild the native menu (and cross to the main thread) needlessly.
+    let previous = app_state
+        .config
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+
     config.save(&app_state.config_path)?;
 
     // Sync autostart with the (possibly changed) setting.
@@ -204,8 +230,18 @@ pub fn save_config(app: AppHandle, config: AppConfig) -> AppResult<AppConfig> {
     }
 
     *app_state.config.lock().unwrap_or_else(|e| e.into_inner()) = config.clone();
-    let current = theme::read_theme_state().unwrap_or_else(|_| fallback_state());
-    crate::tray::refresh(&app, &current);
+
+    let tray_changed = previous.settings.language != config.settings.language
+        || previous.settings.start_with_windows != config.settings.start_with_windows
+        || previous.profile(LIGHT_PROFILE_ID).map(|p| &p.name)
+            != config.profile(LIGHT_PROFILE_ID).map(|p| &p.name)
+        || previous.profile(DARK_PROFILE_ID).map(|p| &p.name)
+            != config.profile(DARK_PROFILE_ID).map(|p| &p.name);
+
+    if tray_changed {
+        let current = theme::read_theme_state().unwrap_or_else(|_| fallback_state());
+        crate::tray::refresh(&app, &current);
+    }
     Ok(config)
 }
 

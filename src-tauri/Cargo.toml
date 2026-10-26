@@ -1,6 +1,6 @@
 [package]
 name = "windows-theme-switcher"
-version = "1.0.0"
+version = "1.0.1"
 description = "One-click Windows Light/Dark theme switcher with system tray"
 authors = ["DashAkoul"]
 edition = "2021"
