@@ -211,4 +211,7 @@ pub fn hide_panel(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
+    // Hiding from the ✕ button may not produce a focus event, so make sure
+    // the idle timer that releases the webview is armed here too.
+    crate::schedule_idle_destroy(app);
 }
