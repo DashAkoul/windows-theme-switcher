@@ -35,7 +35,10 @@ SIGNATURE=$(tr -d '\n' < "$SIG_FILE")
 echo "signature: ${SIGNATURE:0:40}... (${#SIGNATURE} chars)"
 
 ASSET_NAME=$(basename "$INSTALLER")
-URL="https://github.com/${REPO}/releases/download/${TAG}/$(python -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$ASSET_NAME")"
+# GitHub replaces spaces with dots in uploaded asset names, so the download
+# URL must use that sanitized name (a %20-encoded URL returns 404).
+ASSET_URL_NAME=$(python -c "import sys; print(sys.argv[1].replace(' ', '.'))" "$ASSET_NAME")
+URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_URL_NAME}"
 PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 cat > latest.json <<EOF
