@@ -114,15 +114,14 @@ windows-theme-switcher/
 │   └── TESTING.md                 # تست و رفع اشکال
 ├── scripts/
 │   └── generate_icons.py          # تولید آیکون‌ها (PNG/ICO، بدون وابستگی خارجی)
-├── src/                           # فرانت‌اند React + TypeScript
+├── src/                           # فرانت‌اند React + TypeScript (v2: یک پنل)
 │   ├── main.tsx
-│   ├── App.tsx                    # مسیریاب Onboarding ↔ Settings
+│   ├── App.tsx                    # بارگذاری state + رندر پنل
 │   ├── types.ts                   # تایپ‌های مشتق از struct‌های Rust
-│   ├── i18n.ts                    # دیکشنری en/fa + RTL
-│   ├── api.ts                     # پوشش typed روی invoke + listen
-│   ├── styles/global.css          # توکن‌های طراحی Fluent-like
-│   ├── components/                # TitleBar, Toggle, Select, ThemePreview, Toast...
-│   └── views/                     # Onboarding, SettingsView, AboutView
+│   ├── api.ts                     # پوشش typed روی invoke + listen (+ mock مرورگر)
+│   ├── styles/global.css          # توکن‌های پنل (light/dark با prefers-color-scheme)
+│   ├── components/controls.tsx    # Toggle + آیکون‌های خورشید/ماه
+│   └── views/Panel.tsx            # تنها صفحه: سوییچ Light/Dark + دو گزینه
 └── src-tauri/                     # بک‌اند Rust
     ├── Cargo.toml / build.rs / tauri.conf.json / capabilities/default.json
     ├── icons/                     # آیکون اپ + tray (moon/sun)
@@ -180,14 +179,7 @@ WM_SETTINGCHANGE خارجی ──► monitor.rs ──► خواندن Registry
   "version": 1,
   "settings": {
     "startWithWindows": false,
-    "launchMinimized": true,
-    "checkUpdates": true,
-    "language": "en",
-    "uiTheme": "system",
-    "accentColor": "#0078D4",
-    "animations": true,
-    "transparency": true,
-    "onboardingCompleted": false
+    "checkUpdates": true
   },
   "profiles": {
     "light": {
@@ -213,6 +205,9 @@ WM_SETTINGCHANGE خارجی ──► monitor.rs ──► خواندن Registry
 
 - `profiles` از نوع `HashMap<String, ThemeProfile>` است تا افزودن پروفایل‌های Work/Gaming/Reading در آینده بدون migration باشد.
 - `accentColor: null` و `wallpaper: null` به معنای «تغییر نده» هستند.
+- در v2 رابط کاربری فقط Light/Dark را عوض می‌کند؛ این فیلدها برای ویرایش دستی/آینده باقی مانده‌اند
+  و فیلدهای حذف‌شده‌ی نسخه ۱ (`language`, `uiTheme`, `animations`, `transparency`, `onboardingCompleted`)
+  توسط serde نادیده گرفته می‌شوند (config قدیمی بدون migration کار می‌کند).
 - اعتبارسنجی: مقادیر enum فقط light/dark؛ رنگ با regex hex؛ wallpaper باید مسیر مطلق موجود باشد (در زمان اعمال).
 
 ---
@@ -245,27 +240,27 @@ Exit
 - ویندوز Light است → آیکون **Moon** (تیره، خوانا روی تسک‌بار روشن) → کلیک = رفتن به Dark
 - ویندوز Dark است → آیکون **Sun** (کهربایی، خوانا روی تسک‌بار تیره) → کلیک = رفتن به Light
 
-### 8.2 پنجره Settings
+### 8.2 پنل پاپ‌آپ (تنها رابط کاربری)
 
-ویندوز بدون decorations با titlebar سفارشی (دکمه minimize/close + drag region)، sidebar مثل Settings ویندوز ۱۱:
+پنجرهٔ ثابت **۳۴۰×۲۴۶**، بدون decorations، `always_on_top`، `skip_taskbar`:
 
-- **General** — Start with Windows · Launch minimized · Check for updates · Language (en/fa با RTL)
-- **Light (Day)** — Theme Editor پروفایل light + Preview زنده
-- **Dark (Night)** — Theme Editor پروفایل dark + Preview زنده
-- **Appearance** — UI theme (system/light/dark) · Accent color · Animations · Transparency (Mica/Acrylic)
-- **Advanced** — کلیدهای registry استفاده‌شده (فقط خواندنی) · Restore defaults · Diagnostics + Copy · Check for updates · Log path
+```
+┌──────────────────────────────────┐
+│ ◐ Windows Theme Switcher      ✕ │  ← drag region
+├──────────────────────────────────┤
+│  ┌──────────┐   ┌──────────┐     │
+│  │  ☀ Light │   │  ☾ Dark  │     │  ← انتخاب فعال با border/tint اکسنت
+│  └──────────┘   └──────────┘     │
+│  Start with Windows         [○]  │
+│  Windows theme settings…         │
+│  v2.0.0                          │
+└──────────────────────────────────┘
+```
 
-### 8.3 Theme Preview
-
-پیش‌نمایش زنده یک پنجرهٔ نمونه (titlebar + دکمه‌ها + toggle + کارت) که:
-- رنگ‌ها از `windowsMode` پروفایل مشتق می‌شوند؛
-- accent روی دکمه Primary اعمال می‌شود؛
-- اگر transparency فعال باشد، پس‌زمینه blur/mica دارد؛
-- اگر wallpaper تنظیم شده، به‌عنوان «دسکتاپ» پشت پنجره نمونه نمایش داده می‌شود.
-
-### 8.4 Onboarding (اولین اجرا)
-
-۳ اسلاید کوتاه → دکمه Done → برنامه به tray می‌رود. هرگز دوباره (مگر Restore defaults).
+- با کلیک بیرون (از دست دادن focus) مخفی می‌شود؛ پس از ۲ دقیقه بیکاری **destroy** می‌شود تا حافظه WebView آزاد شود.
+- پنجره در `tauri.conf.json` تعریف نشده؛ `ensure_panel()` آن را lazy می‌سازد و در گوشه پایین-راست work area قرار می‌دهد.
+- اگر آپدیت موجود باشد، در فوتر یک لینک «Update to vX» ظاهر می‌شود.
+- خطاها به‌صورت یک خط متن قرمز داخل پنل نمایش داده می‌شوند (بدون toast/dialog).
 
 ### 8.5 Error UX
 

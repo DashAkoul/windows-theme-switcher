@@ -39,8 +39,6 @@ pub struct AppState {
     pub config_path: PathBuf,
     /// The tray icon (kept alive for the process lifetime).
     pub tray: Mutex<Option<tauri::tray::TrayIcon>>,
-    /// Route the UI should open with when it next mounts.
-    pub pending_route: Mutex<Option<String>>,
 }
 
 /// Entry point called by `main.rs`.
@@ -55,23 +53,15 @@ pub fn run() {
     }
 
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(setup)
         .invoke_handler(tauri::generate_handler![
             commands::get_app_state,
             commands::toggle_theme,
             commands::apply_profile,
-            commands::save_config,
-            commands::set_autostart,
-            commands::detect_current_profile,
+            commands::save_settings,
             commands::open_windows_settings,
-            commands::open_url,
-            commands::get_diagnostics,
-            commands::clear_pending_route,
-            commands::reset_config,
-            commands::config_path,
-            commands::log_debug,
+            commands::hide_panel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -119,7 +109,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         config: Mutex::new(config.clone()),
         config_path: config_path.clone(),
         tray: Mutex::new(None),
-        pending_route: Mutex::new(None),
     });
 
     // Tray icon + context menu.
@@ -128,21 +117,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         e.to_string()
     })?;
 
-    // Main window is created LAZILY (see `ensure_main_window`): a tray-only
-    // start must not pay the ~400 MB WebView2 footprint. It is only created
-    // when the user actually needs the UI.
-    let need_window = !config.settings.onboarding_completed || !config.settings.launch_minimized;
-    if need_window {
-        if let Some(window) = ensure_main_window(&handle) {
-            let _ = window.show();
-            if !config.settings.onboarding_completed {
-                let _ = window.set_focus();
-                logger::info("showing onboarding window (first run)");
-            }
-        }
-    } else {
-        logger::info("starting minimized to tray (no webview)");
-    }
+    // The panel is created LAZILY (see `ensure_panel`): a tray-only start
+    // must not pay the ~400 MB WebView2 footprint. It is only created when
+    // the user opens it, and destroyed again when it loses focus/idles.
+    logger::info("starting in tray (panel is created on demand)");
 
     logger::info(format!(
         "startup complete (build {}, config: {})",
@@ -152,14 +130,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Create the main window on demand (or return the existing one).
+/// Panel geometry (a compact popup, not a full application window).
+const PANEL_W: f64 = 340.0;
+const PANEL_H: f64 = 246.0;
+
+/// Create the panel on demand (or return the existing one).
 ///
 /// The window is intentionally **not** declared in `tauri.conf.json`: a
 /// tray-only start would otherwise spin up WebView2 (~400 MB across its
-/// helper processes) even though no UI is needed. Closing the window
-/// destroys it, which releases that memory again; the app keeps running in
-/// the tray and recreates the window when the user asks for it.
-pub fn ensure_main_window(app: &AppHandle) -> Option<WebviewWindow> {
+/// helper processes) even though no UI is needed. The panel hides when it
+/// loses focus and is destroyed after a short idle period, which releases
+/// that memory again; the app keeps running in the tray.
+pub fn ensure_panel(app: &AppHandle) -> Option<WebviewWindow> {
     if let Some(window) = app.get_webview_window("main") {
         return Some(window);
     }
@@ -170,26 +152,76 @@ pub fn ensure_main_window(app: &AppHandle) -> Option<WebviewWindow> {
         tauri::WebviewUrl::App("index.html".into()),
     )
     .title("Windows Theme Switcher")
-    .inner_size(940.0, 680.0)
-    .min_inner_size(760.0, 560.0)
+    .inner_size(PANEL_W, PANEL_H)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
     .decorations(false)
-    .center()
+    .always_on_top(true)
+    .skip_taskbar(true)
     .visible(false)
     .shadow(true)
     .build();
 
     match built {
         Ok(window) => {
-            window.on_window_event(|event| {
-                if let tauri::WindowEvent::Destroyed = event {
-                    logger::info("main window destroyed (webview memory released)");
+            // Popup behaviour: hide as soon as the panel loses focus, and
+            // release the webview entirely after a short idle period.
+            let app_for_events = app.clone();
+            let window_for_events = window.clone();
+            window.on_window_event(move |event| match event {
+                tauri::WindowEvent::Focused(false) => {
+                    let _ = window_for_events.hide();
+                    schedule_idle_destroy(app_for_events.clone());
                 }
+                tauri::WindowEvent::Destroyed => {
+                    logger::info("panel destroyed (webview memory released)");
+                }
+                _ => {}
             });
             Some(window)
         }
         Err(e) => {
-            logger::error(format!("failed to create main window: {e}"));
+            logger::error(format!("failed to create panel: {e}"));
             None
         }
     }
+}
+
+/// Destroy the hidden panel after a while so the WebView2 memory (which is
+/// large compared to the rest of the app) does not stay resident forever.
+fn schedule_idle_destroy(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(120));
+        let app_for_main = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(window) = app_for_main.get_webview_window("main") {
+                if !window.is_visible().unwrap_or(false) {
+                    let _ = window.close();
+                    logger::info("panel closed after idle (memory released)");
+                }
+            }
+        });
+    });
+}
+
+/// Show the panel as a tray popup: positioned above the taskbar in the
+/// bottom-right corner, focused, and closed again when it loses focus.
+pub fn show_panel(app: &AppHandle) {
+    let Some(window) = ensure_panel(app) else {
+        return;
+    };
+
+    // Bottom-right of the work area, a few pixels above the taskbar.
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let x = area.position.x as f64 + area.size.width as f64 - PANEL_W * scale - 12.0 * scale;
+        let y = area.position.y as f64 + area.size.height as f64 - PANEL_H * scale - 12.0 * scale;
+        let _ = window.set_position(tauri::LogicalPosition::new(x / scale, y / scale));
+    }
+
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
 }

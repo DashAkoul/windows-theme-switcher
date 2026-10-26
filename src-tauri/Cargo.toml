@@ -1,6 +1,6 @@
 [package]
 name = "windows-theme-switcher"
-version = "1.0.2"
+version = "2.0.0"
 description = "One-click Windows Light/Dark theme switcher with system tray"
 authors = ["DashAkoul"]
 edition = "2021"
@@ -16,7 +16,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
-tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

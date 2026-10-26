@@ -48,32 +48,6 @@ impl ThemeMode {
     }
 }
 
-/// UI theme choice for the app's own window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum UiTheme {
-    System,
-    Light,
-    Dark,
-}
-
-/// Language of the app UI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Language {
-    En,
-    Fa,
-}
-
-impl Language {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Language::En => "en",
-            Language::Fa => "fa",
-        }
-    }
-}
-
 /// A complete theme profile that can be applied to Windows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,33 +105,19 @@ pub fn is_valid_hex_color(s: &str) -> bool {
     s[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Application-wide settings.
+/// Application-wide settings (deliberately minimal - the app is a tray popup).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub start_with_windows: bool,
-    pub launch_minimized: bool,
     pub check_updates: bool,
-    pub language: Language,
-    pub ui_theme: UiTheme,
-    pub accent_color: String,
-    pub animations: bool,
-    pub transparency: bool,
-    pub onboarding_completed: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             start_with_windows: false,
-            launch_minimized: true,
             check_updates: true,
-            language: Language::En,
-            ui_theme: UiTheme::System,
-            accent_color: "#0078D4".to_string(),
-            animations: true,
-            transparency: true,
-            onboarding_completed: false,
         }
     }
 }
@@ -254,12 +214,6 @@ impl AppConfig {
 
     /// Validate all profiles and settings.
     pub fn validate(&self) -> AppResult<()> {
-        if !is_valid_hex_color(&self.settings.accent_color) {
-            return Err(AppError::new(
-                crate::error::ErrorCode::ConfigInvalid,
-                "Invalid UI accent color in settings",
-            ));
-        }
         for (id, profile) in &self.profiles {
             profile
                 .validate()
@@ -371,12 +325,12 @@ mod tests {
         let _ = fs::remove_file(&path);
 
         let mut config = AppConfig::default();
-        config.settings.language = Language::Fa;
+        config.settings.check_updates = false;
         config.settings.start_with_windows = true;
         config.save(&path).unwrap();
 
         let loaded = AppConfig::load(&path).unwrap();
-        assert_eq!(loaded.settings.language, Language::Fa);
+        assert!(!loaded.settings.check_updates);
         assert!(loaded.settings.start_with_windows);
         let _ = fs::remove_file(&path);
     }
