@@ -185,7 +185,21 @@ impl AppConfig {
         match serde_json::from_str::<AppConfig>(&content) {
             Ok(mut config) => {
                 config.migrate_and_fill();
-                config.validate()?;
+                // Valid JSON but invalid *values* (hand-edited file, or a
+                // profile with an empty name / relative wallpaper). Returning
+                // an error here used to abort startup entirely, leaving the
+                // user with an app that never launches; back the file up and
+                // start from defaults instead.
+                if let Err(e) = config.validate() {
+                    let backup = path.with_extension("json.invalid");
+                    let _ = fs::copy(path, &backup);
+                    crate::logger::warn(format!(
+                        "config values invalid ({e}), backed up to {backup:?}; using defaults"
+                    ));
+                    let fresh = Self::default();
+                    fresh.save(path)?;
+                    return Ok(fresh);
+                }
                 Ok(config)
             }
             Err(e) => {
@@ -358,6 +372,27 @@ mod tests {
         assert!(path.with_extension("json.corrupt").exists());
         let _ = fs::remove_file(&path);
         let _ = fs::remove_file(path.with_extension("json.corrupt"));
+    }
+
+    #[test]
+    fn load_valid_json_with_bad_values_recovers() {
+        // Parses fine, but the profile name is empty -> validate() fails.
+        // Startup must not be blocked by this.
+        let dir = std::env::temp_dir().join("wts_config_test_badvalues");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("config.json");
+        let mut config = AppConfig::default();
+        config.profiles.get_mut(LIGHT_PROFILE_ID).unwrap().name = "   ".into();
+        fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
+
+        let loaded = AppConfig::load(&path).unwrap();
+        assert_eq!(loaded, AppConfig::default());
+        assert!(path.with_extension("json.invalid").exists());
+        // The rewritten file must be loadable again.
+        assert!(AppConfig::load(&path).is_ok());
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(path.with_extension("json.invalid"));
     }
 
     #[test]

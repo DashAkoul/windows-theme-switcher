@@ -1,7 +1,7 @@
 // The whole UI: a compact tray popup with the Light / Dark switch.
 
 import { useCallback, useEffect, useState } from "react";
-import { api, closePanel, errorMessage, isTauri, onThemeChanged } from "../api";
+import { api, closePanel, errorMessage, isTauri, onThemeChanged, onThemeError } from "../api";
 import { MoonIcon, SunIcon, Toggle } from "../components/controls";
 import type { AppStateResponse } from "../types";
 import { DARK_PROFILE_ID, LIGHT_PROFILE_ID } from "../types";
@@ -15,11 +15,18 @@ export function Panel({ initial }: { initial: AppStateResponse }) {
 
   // Windows (or the tray) may change the theme while the panel is open.
   useEffect(() => {
-    let off: (() => void) | undefined;
+    let offTheme: (() => void) | undefined;
+    let offError: (() => void) | undefined;
     void onThemeChanged((current) => {
       setState((prev) => ({ ...prev, current }));
-    }).then((fn) => (off = fn));
-    return () => off?.();
+    }).then((fn) => (offTheme = fn));
+    // Tray clicks and menu items report failures through this event; without
+    // a listener the user would never see them.
+    void onThemeError((message) => setError(message)).then((fn) => (offError = fn));
+    return () => {
+      offTheme?.();
+      offError?.();
+    };
   }, []);
 
   // Silent update check (only shows a link when an update really exists).

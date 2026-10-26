@@ -35,7 +35,6 @@ export interface ThemeState {
 export interface AppStateResponse {
   config: AppConfig;
   current: ThemeState;
-  isWindows11: boolean;
   version: string;
 }
 

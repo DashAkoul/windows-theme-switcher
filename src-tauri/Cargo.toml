@@ -1,6 +1,6 @@
 [package]
 name = "windows-theme-switcher"
-version = "2.1.0"
+version = "2.1.1"
 description = "One-click Windows Light/Dark theme switcher with system tray"
 authors = ["DashAkoul"]
 edition = "2021"
@@ -25,12 +25,13 @@ winreg = "0.55"
 version = "0.61"
 features = [
   "Win32_Foundation",
-  "Win32_Graphics_Gdi",
+  # Required by CreateEventW/CreateMutexW (SECURITY_ATTRIBUTES parameter).
   "Win32_Security",
+  # Required by RegisterClassW (WNDCLASSW carries HBRUSH/HICON/HCURSOR).
+  "Win32_Graphics_Gdi",
   "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
   "Win32_System_ProcessStatus",
-  "Win32_System_Registry",
-  "Win32_System_SystemInformation",
   "Win32_System_Threading",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",

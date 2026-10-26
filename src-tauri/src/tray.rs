@@ -146,10 +146,16 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             }
         }
         "light" => {
-            let _ = crate::commands::apply_profile_inner(app, LIGHT_PROFILE_ID);
+            if let Err(e) = crate::commands::apply_profile_inner(app, LIGHT_PROFILE_ID) {
+                crate::logger::error(format!("menu apply(light) failed: {e}"));
+                let _ = app.emit("theme-error", e.message.clone());
+            }
         }
         "dark" => {
-            let _ = crate::commands::apply_profile_inner(app, DARK_PROFILE_ID);
+            if let Err(e) = crate::commands::apply_profile_inner(app, DARK_PROFILE_ID) {
+                crate::logger::error(format!("menu apply(dark) failed: {e}"));
+                let _ = app.emit("theme-error", e.message.clone());
+            }
         }
         "panel" => crate::show_panel(app),
         "autostart" => {

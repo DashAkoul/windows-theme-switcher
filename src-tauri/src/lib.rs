@@ -40,11 +40,14 @@ static LAST_SHOWN_MS: AtomicU64 = AtomicU64::new(0);
 /// Grace period (ms) during which an early focus loss is ignored.
 const FOCUS_GRACE_MS: u64 = 700;
 
+/// Monotonic milliseconds since the first call.
+///
+/// A monotonic clock is required here: `SystemTime` jumps when the machine
+/// syncs its clock, which would make the focus-grace comparison meaningless.
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    let start = START.get_or_init(std::time::Instant::now);
+    start.elapsed().as_millis() as u64
 }
 
 /// Global app handle, initialized in `setup()`. Used by the native message
@@ -63,14 +66,17 @@ pub struct AppState {
 
 /// Entry point called by `main.rs`.
 pub fn run() {
-    // Native singletons + signal window are set up BEFORE any Tauri
-    // initialization: a second launch must exit (almost) immediately,
-    // without creating a webview, and must wake the running instance.
+    // Native singletons are set up BEFORE any Tauri initialization: a second
+    // launch must exit (almost) immediately, without creating a webview, and
+    // must wake the running instance.
     let first_instance = monitor::ensure_single_instance();
-    monitor::start_monitor_thread();
     if let monitor::InstanceCheck::AlreadyRunning = first_instance {
         std::process::exit(0);
     }
+    // Only the instance that keeps running needs the signal window / message
+    // pump. Starting it earlier made the second instance briefly register a
+    // *second* "WTS Signal" window, which a third launch could have found.
+    monitor::start_monitor_thread();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -114,13 +120,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         e.to_string()
     })?;
 
-    // Sync autostart registry state with the user's setting.
+    // Keep the Run key in sync with the setting. `sync` also rewrites the
+    // value when it points at a different executable (e.g. after an update
+    // installed the app somewhere else).
     if let Ok(exe) = std::env::current_exe() {
         let exe_path = exe.to_string_lossy().to_string();
-        if autostart::is_enabled() != config.settings.start_with_windows {
-            if let Err(e) = autostart::set_enabled(&exe_path, config.settings.start_with_windows) {
-                logger::warn(format!("failed to sync autostart: {e}"));
-            }
+        if let Err(e) = autostart::sync(&exe_path, config.settings.start_with_windows) {
+            logger::warn(format!("failed to sync autostart: {e}"));
         }
     }
 
@@ -276,9 +282,11 @@ pub fn show_panel(app: &AppHandle) {
         let _ = window.set_position(tauri::LogicalPosition::new(x / scale, y / scale));
     }
 
+    // Record the show *before* showing: `set_focus` can synchronously deliver
+    // the spurious `Focused(false)` this timestamp is meant to absorb.
+    LAST_SHOWN_MS.store(now_ms(), Ordering::Relaxed);
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
-    LAST_SHOWN_MS.store(now_ms(), Ordering::Relaxed);
     logger::info("panel shown");
 }
