@@ -7,6 +7,7 @@ import type {
   AppConfig,
   AppErrorPayload,
   AppStateResponse,
+  Language,
   ThemeProfile,
   ThemeState,
 } from "./types";
@@ -21,6 +22,13 @@ export const isTauri = (): boolean =>
  * without the native layer.
  */
 function mockState(): AppStateResponse {
+  // `?lang=fa` lets the browser preview render the Persian (RTL) UI.
+  const requestedLang =
+    typeof location !== "undefined"
+      ? new URLSearchParams(location.search).get("lang")
+      : null;
+  const language: Language = requestedLang === "fa" ? "fa" : "en";
+
   const light: ThemeProfile = {
     name: "Day",
     windowsMode: "light",
@@ -43,7 +51,7 @@ function mockState(): AppStateResponse {
       startWithWindows: false,
       launchMinimized: true,
       checkUpdates: true,
-      language: "en",
+      language,
       uiTheme: "system",
       accentColor: "#0078D4",
       animations: true,

@@ -1,6 +1,6 @@
 // Minimal i18n with English and Persian (RTL) support.
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import type { Language } from "./types";
 
 type Dict = Record<string, [string, string]>; // [en, fa]
@@ -134,13 +134,18 @@ const LanguageContext = createContext<{ lang: Language; t: Translate }>({
 });
 
 export function LanguageProvider({ lang, children }: { lang: Language; children: ReactNode }) {
-  const [current] = useState<Language>(lang);
-  const t: Translate = (key) => {
-    const entry = DICT[key];
-    if (!entry) return key;
-    return current === "fa" ? entry[1] : entry[0];
-  };
-  return <LanguageContext.Provider value={{ lang: current, t }}>{children}</LanguageContext.Provider>;
+  // NOTE: `lang` is used directly (not copied into state) so switching the
+  // language in Settings re-renders every string immediately.
+  const t: Translate = useCallback(
+    (key) => {
+      const entry = DICT[key];
+      if (!entry) return key;
+      return lang === "fa" ? entry[1] : entry[0];
+    },
+    [lang]
+  );
+  const value = useMemo(() => ({ lang, t }), [lang, t]);
+  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
 
 export function useI18n() {

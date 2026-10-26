@@ -12,8 +12,7 @@ use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::LPARAM;
 use windows::Win32::UI::WindowsAndMessaging::{
     SendMessageTimeoutW, SystemParametersInfoW, HWND_BROADCAST, SMTO_ABORTIFHUNG,
-    SMTO_NOTIMEOUTIFNOTHUNG, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
-    WM_SETTINGCHANGE,
+    SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER, WM_SETTINGCHANGE,
 };
 
 use crate::config::ThemeProfile;
@@ -119,30 +118,42 @@ pub fn read_theme_state() -> AppResult<ThemeState> {
 /// Broadcast `WM_SETTINGCHANGE` so Explorer and all apps pick up the change
 /// immediately - the same mechanism the Settings app uses.
 ///
-/// The timeout is deliberately short (1.5s): the broadcast is fire-and-forget
-/// for the UI, and a hung receiver must never stall a theme switch.
+/// Runs on a worker thread (fire-and-forget): `SendMessageTimeoutW` with
+/// `HWND_BROADCAST` visits every top-level window in turn, so a single busy
+/// app can stall the call for many seconds. The theme switch itself only
+/// needs the registry writes; notification is best-effort.
 pub fn broadcast_theme_change() -> AppResult<()> {
-    let payload: Vec<u16> = IMMERSIVE_COLOR_SET.encode_utf16().chain(std::iter::once(0)).collect();
-    let mut result: usize = 0;
-    let started = std::time::Instant::now();
-    unsafe {
-        SendMessageTimeoutW(
-            HWND_BROADCAST,
-            WM_SETTINGCHANGE,
-            Default::default(),
-            LPARAM(payload.as_ptr() as isize),
-            SMTO_ABORTIFHUNG | SMTO_NOTIMEOUTIFNOTHUNG,
-            1500,
-            Some(&mut result),
-        );
-    }
-    let elapsed = started.elapsed().as_millis();
-    if elapsed > 500 {
-        crate::logger::warn(format!("WM_SETTINGCHANGE broadcast took {elapsed}ms"));
-    }
-    // A zero result (timeout) is not fatal: some receivers may be hung.
+    std::thread::spawn(|| {
+        let payload: Vec<u16> = IMMERSIVE_COLOR_SET
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut result: usize = 0;
+        let started = std::time::Instant::now();
+        unsafe {
+            SendMessageTimeoutW(
+                HWND_BROADCAST,
+                WM_SETTINGCHANGE,
+                Default::default(),
+                LPARAM(payload.as_ptr() as isize),
+                SMTO_ABORTIFHUNG,
+                1000,
+                Some(&mut result),
+            );
+        }
+        let elapsed = started.elapsed().as_millis();
+        if elapsed > 900 {
+            crate::logger::warn(format!(
+                "WM_SETTINGCHANGE broadcast took {elapsed}ms (some windows are slow)"
+            ));
+        }
+    });
     Ok(())
 }
+
+/// Guard so overlapping applies (rapid tray clicks / double click) never
+/// stack up into multiple broadcasts.
+static APPLYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Apply a theme profile to Windows. All-or-nothing per setting: if a write
 /// fails, remaining writes are still attempted and the first error is
@@ -150,6 +161,18 @@ pub fn broadcast_theme_change() -> AppResult<()> {
 pub fn apply_profile(profile: &ThemeProfile) -> AppResult<ThemeState> {
     profile.validate()?;
 
+    if APPLYING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // Another apply is already in flight. Report the live state instead
+        // of queuing a second (potentially very slow) notification.
+        return read_theme_state();
+    }
+
+    let result = apply_profile_inner(profile);
+    APPLYING.store(false, std::sync::atomic::Ordering::SeqCst);
+    result
+}
+
+fn apply_profile_inner(profile: &ThemeProfile) -> AppResult<ThemeState> {
     let mut first_error: Option<AppError> = None;
 
     // 1. App mode

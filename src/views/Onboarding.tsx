@@ -79,8 +79,8 @@ export function Onboarding({ onFinish }: Props) {
   );
 }
 
-/** Hide the window (move to tray). */
+/** Close the window (the app keeps running in the tray, memory is freed). */
 export function hideToTray() {
   if (!isTauri()) return;
-  void getCurrentWindow().hide();
+  void getCurrentWindow().close();
 }

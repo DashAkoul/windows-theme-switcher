@@ -1,10 +1,20 @@
 // About view - shown when the tray "About" menu item is clicked.
 
+import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
-import { api } from "../api";
+import { api, isTauri } from "../api";
 
 export function AboutView({ onBack }: { onBack: () => void }) {
   const { t } = useI18n();
+  const [version, setVersion] = useState("1.0.1");
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void import("@tauri-apps/api/app")
+      .then((m) => m.getVersion())
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="content">
@@ -28,7 +38,7 @@ export function AboutView({ onBack }: { onBack: () => void }) {
             <div className="card-row-text">
               <p className="card-title">{t("about.version")}</p>
             </div>
-            <span className="muted">1.0.0</span>
+            <span className="muted">{version}</span>
           </div>
         </div>
 
