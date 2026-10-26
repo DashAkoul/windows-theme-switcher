@@ -1,34 +1,20 @@
-// TypeScript types mirroring the Rust structs (serde camelCase).
+// Types mirroring the Rust structs (serde camelCase).
 
 export type ThemeMode = "light" | "dark";
-export type UiTheme = "system" | "light" | "dark";
-export type Language = "en" | "fa";
 
 export interface ThemeProfile {
-  /** Display name, e.g. "Day" / "Night". */
   name: string;
-  /** Taskbar, Start menu and system surfaces. */
   windowsMode: ThemeMode;
-  /** Default theme for Windows apps. */
   appMode: ThemeMode;
-  /** Window and taskbar transparency effects. */
   transparency: boolean;
-  /** Accent color as #RRGGBB, or null to leave unchanged. */
   accentColor: string | null;
-  /** Absolute wallpaper path, or null to leave unchanged. */
   wallpaper: string | null;
 }
 
+/** Only two settings remain in v2 (the panel is intentionally minimal). */
 export interface Settings {
   startWithWindows: boolean;
-  launchMinimized: boolean;
   checkUpdates: boolean;
-  language: Language;
-  uiTheme: UiTheme;
-  accentColor: string;
-  animations: boolean;
-  transparency: boolean;
-  onboardingCompleted: boolean;
 }
 
 export interface AppConfig {
@@ -49,17 +35,8 @@ export interface ThemeState {
 export interface AppStateResponse {
   config: AppConfig;
   current: ThemeState;
-  osBuild: number;
   isWindows11: boolean;
-  osDisplay: string;
-  exePath: string;
-  logPath: string;
-  pendingRoute: string | null;
-}
-
-export interface AppErrorPayload {
-  code: string;
-  message: string;
+  version: string;
 }
 
 export const LIGHT_PROFILE_ID = "light";

@@ -148,7 +148,7 @@ fn handle_external_theme_change() {
     let _ = app.emit("system-theme-changed", &state);
 }
 
-/// Show and focus the main window (called from the signal thread).
+/// Show the panel (called from the signal thread).
 ///
 /// Window creation must happen on the main thread, so the work is posted to
 /// the event loop instead of running on this thread.
@@ -159,12 +159,7 @@ fn show_main_window() {
     };
     let app_for_main = app.clone();
     let _ = app.run_on_main_thread(move || {
-        if let Some(window) = crate::ensure_main_window(&app_for_main) {
-            let _ = window.show();
-            let _ = window.unminimize();
-            let _ = window.set_focus();
-        }
-        let _ = app_for_main.emit("tray://navigate", "settings");
+        crate::show_panel(&app_for_main);
     });
 }
 

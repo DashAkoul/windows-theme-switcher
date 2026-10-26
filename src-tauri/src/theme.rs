@@ -268,6 +268,7 @@ fn apply_profile_inner(profile: &ThemeProfile) -> AppResult<ThemeState> {
 
 /// Build a `ThemeProfile` that mirrors the current Windows state.
 /// Used by the "Detect current" button in the theme editor.
+#[allow(dead_code)]
 pub fn profile_from_current_state(name: &str) -> AppResult<ThemeProfile> {
     let state = read_theme_state()?;
     let mode = |light: bool| {

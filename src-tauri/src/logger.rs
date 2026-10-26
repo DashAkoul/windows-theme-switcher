@@ -84,20 +84,6 @@ pub fn error(message: impl AsRef<str>) {
 }
 
 /// Read the tail of the log file (last `max_lines` lines). Used by the
-/// diagnostics command.
-pub fn tail(max_lines: usize) -> String {
-    let path = match log_path() {
-        Some(p) => p,
-        None => return String::new(),
-    };
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return String::new(),
-    };
-    let lines: Vec<&str> = content.lines().collect();
-    let start = lines.len().saturating_sub(max_lines);
-    lines[start..].join("\n")
-}
 
 /// Ensure a fresh file handle exists (used in tests).
 #[allow(dead_code)]
