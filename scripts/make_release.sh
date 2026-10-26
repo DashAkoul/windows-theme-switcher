@@ -25,8 +25,14 @@ if [ ! -f "$INSTALLER" ]; then
 fi
 
 echo "==> Signing installer with minisign key"
-SIGNATURE=$(npx tauri signer sign -f "$KEY" -p "" "$INSTALLER" | tail -1)
-echo "signature: ${SIGNATURE:0:40}..."
+npx tauri signer sign -f "$KEY" -p "" "$INSTALLER" > /dev/null
+SIG_FILE="${INSTALLER}.sig"
+if [ ! -f "$SIG_FILE" ]; then
+    echo "ERROR: signature file not produced: $SIG_FILE"
+    exit 1
+fi
+SIGNATURE=$(tr -d '\n' < "$SIG_FILE")
+echo "signature: ${SIGNATURE:0:40}... (${#SIGNATURE} chars)"
 
 ASSET_NAME=$(basename "$INSTALLER")
 URL="https://github.com/${REPO}/releases/download/${TAG}/$(python -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$ASSET_NAME")"
