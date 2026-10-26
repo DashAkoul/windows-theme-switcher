@@ -1,43 +1,26 @@
-//! Tauri commands exposed to the React frontend.
+//! Tauri commands exposed to the panel UI.
 //!
 //! Each `#[tauri::command]` is a thin wrapper around an `*_inner` function
 //! that takes `&AppHandle` so the same logic can be called from tray event
 //! handlers (which have no `State` parameter).
 
-use std::path::PathBuf;
 use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::config::{AppConfig, ThemeProfile, DARK_PROFILE_ID, LIGHT_PROFILE_ID};
+use crate::config::{AppConfig, DARK_PROFILE_ID, LIGHT_PROFILE_ID};
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::theme::{self, ThemeState};
 use crate::AppState;
 
-/// Full application state returned to the frontend on startup.
+/// State returned to the panel on startup.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStateResponse {
     pub config: AppConfig,
     pub current: ThemeState,
-    pub os_build: u32,
     pub is_windows11: bool,
-    pub os_display: String,
-    pub exe_path: String,
-    pub log_path: String,
-    /// Route the UI should open with (set when the tray asks for a view).
-    pub pending_route: Option<String>,
-}
-
-fn os_display() -> String {
-    let build = crate::registry::read_windows_build();
-    let display = crate::registry::read_display_version().unwrap_or_default();
-    if display.is_empty() {
-        format!("Windows (build {build})")
-    } else {
-        format!("Windows 11 {display} (build {build})")
-            .replace("Windows 11", if build >= 22000 { "Windows 11" } else { "Windows 10" })
-    }
+    pub version: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -51,51 +34,29 @@ pub fn toggle_theme_inner(app: &AppHandle) -> AppResult<ThemeState> {
     } else {
         LIGHT_PROFILE_ID
     };
-
-    let app_state = app.state::<AppState>();
-    let profile = {
-        let config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
-        config
-            .profile(target_id)
-            .cloned()
-            .ok_or_else(|| AppError::new(ErrorCode::ProfileNotFound, format!("profile '{target_id}' not found")))?
-    };
-
-    let started = Instant::now();
-    let new_state = theme::apply_profile(&profile).inspect_err(|e| {
-        crate::logger::error(format!("apply_profile({target_id}) failed: {e}"));
-    })?;
-    crate::logger::info(format!(
-        "applied profile '{target_id}' in {}ms",
-        started.elapsed().as_millis()
-    ));
-
-    // Persist last active profile (best effort - never blocks the switch).
-    {
-        let mut config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
-        config.last_active_profile = Some(target_id.to_string());
-        let _ = config.save(&app_state.config_path);
-    }
-
-    // Remember this state so the echo of our own WM_SETTINGCHANGE broadcast
-    // does not trigger a second tray rebuild.
-    crate::monitor::note_applied_state(&new_state);
-    crate::tray::refresh(app, &new_state);
-    let _ = app.emit("theme-applied", &new_state);
-    Ok(new_state)
+    apply_profile_inner(app, target_id)
 }
 
 pub fn apply_profile_inner(app: &AppHandle, id: &str) -> AppResult<ThemeState> {
     let app_state = app.state::<AppState>();
     let profile = {
         let config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
-        config
-            .profile(id)
-            .cloned()
-            .ok_or_else(|| AppError::new(ErrorCode::ProfileNotFound, format!("profile '{id}' not found")))?
+        config.profile(id).cloned().ok_or_else(|| {
+            AppError::new(
+                ErrorCode::ProfileNotFound,
+                format!("profile '{id}' not found"),
+            )
+        })?
     };
 
-    let new_state = theme::apply_profile(&profile)?;
+    let started = Instant::now();
+    let new_state = theme::apply_profile(&profile).inspect_err(|e| {
+        crate::logger::error(format!("apply_profile({id}) failed: {e}"));
+    })?;
+    crate::logger::info(format!(
+        "applied profile '{id}' in {}ms",
+        started.elapsed().as_millis()
+    ));
 
     {
         let mut config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
@@ -103,6 +64,8 @@ pub fn apply_profile_inner(app: &AppHandle, id: &str) -> AppResult<ThemeState> {
         let _ = config.save(&app_state.config_path);
     }
 
+    // Remember this state so the echo of our own WM_SETTINGCHANGE broadcast
+    // does not trigger a second tray rebuild.
     crate::monitor::note_applied_state(&new_state);
     crate::tray::refresh(app, &new_state);
     let _ = app.emit("theme-applied", &new_state);
@@ -132,25 +95,11 @@ pub fn toggle_autostart_inner(app: &AppHandle) -> AppResult<bool> {
     Ok(new_value)
 }
 
-pub fn show_window_with_route(app: &AppHandle, route: &str) {
-    let app_state = app.state::<AppState>();
-    if let Ok(mut pending) = app_state.pending_route.lock() {
-        *pending = Some(route.to_string());
-    }
-    // Creates the window (and its webview) on demand.
-    if let Some(window) = crate::ensure_main_window(app) {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
-    let _ = app.emit("tray://navigate", route);
-}
-
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Get the full app state (config + current Windows theme + OS info).
+/// Get the config + current Windows theme state.
 #[tauri::command]
 pub fn get_app_state(app: AppHandle) -> AppResult<AppStateResponse> {
     let app_state = app.state::<AppState>();
@@ -159,14 +108,9 @@ pub fn get_app_state(app: AppHandle) -> AppResult<AppStateResponse> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let pending_route = app_state
-        .pending_route
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
 
-    // A single failed registry read must never brick the whole UI: fall back
-    // to a neutral state and keep going.
+    // A failed registry read must never brick the panel: fall back to a
+    // neutral state and keep going.
     let current = theme::read_theme_state().unwrap_or_else(|e| {
         crate::logger::warn(format!("read_theme_state failed, using fallback: {e}"));
         ThemeState {
@@ -177,21 +121,12 @@ pub fn get_app_state(app: AppHandle) -> AppResult<AppStateResponse> {
             wallpaper: None,
         }
     });
-    let build = crate::registry::read_windows_build();
 
     Ok(AppStateResponse {
         config,
         current,
-        os_build: build,
-        is_windows11: build >= 22000,
-        os_display: os_display(),
-        exe_path: std::env::current_exe()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
-        log_path: crate::logger::log_path()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
-        pending_route,
+        is_windows11: crate::registry::read_windows_build() >= 22000,
+        version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }
 
@@ -207,20 +142,18 @@ pub fn apply_profile(app: AppHandle, id: String) -> AppResult<ThemeState> {
     apply_profile_inner(&app, &id)
 }
 
-/// Save the full configuration (called from the settings UI).
+/// Persist settings (only "start with Windows" and "check updates" exist).
 #[tauri::command]
-pub fn save_config(app: AppHandle, config: AppConfig) -> AppResult<AppConfig> {
-    config.validate()?;
+pub fn save_settings(app: AppHandle, settings: crate::config::Settings) -> AppResult<AppConfig> {
     let app_state = app.state::<AppState>();
-
-    // Snapshot the values the tray menu displays, so an unrelated toggle does
-    // not rebuild the native menu (and cross to the main thread) needlessly.
     let previous = app_state
         .config
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
 
+    let mut config = previous.clone();
+    config.settings = settings;
     config.save(&app_state.config_path)?;
 
     // Sync autostart with the (possibly changed) setting.
@@ -231,77 +164,37 @@ pub fn save_config(app: AppHandle, config: AppConfig) -> AppResult<AppConfig> {
 
     *app_state.config.lock().unwrap_or_else(|e| e.into_inner()) = config.clone();
 
-    let tray_changed = previous.settings.language != config.settings.language
-        || previous.settings.start_with_windows != config.settings.start_with_windows
-        || previous.profile(LIGHT_PROFILE_ID).map(|p| &p.name)
-            != config.profile(LIGHT_PROFILE_ID).map(|p| &p.name)
-        || previous.profile(DARK_PROFILE_ID).map(|p| &p.name)
-            != config.profile(DARK_PROFILE_ID).map(|p| &p.name);
-
-    if tray_changed {
-        let current = theme::read_theme_state().unwrap_or_else(|_| fallback_state());
+    if previous.settings.start_with_windows != config.settings.start_with_windows {
+        let current = theme::read_theme_state().unwrap_or_else(|_| ThemeState {
+            app_mode_light: true,
+            system_mode_light: true,
+            transparency: true,
+            accent_color: None,
+            wallpaper: None,
+        });
         crate::tray::refresh(&app, &current);
     }
+
     Ok(config)
-}
-
-/// Neutral fallback state used only if the registry cannot be read.
-fn fallback_state() -> ThemeState {
-    ThemeState {
-        app_mode_light: true,
-        system_mode_light: true,
-        transparency: true,
-        accent_color: None,
-        wallpaper: None,
-    }
-}
-
-/// Enable/disable "Start with Windows".
-#[tauri::command]
-pub fn set_autostart(app: AppHandle, enabled: bool) -> AppResult<bool> {
-    let app_state = app.state::<AppState>();
-    let exe = std::env::current_exe()
-        .map_err(|e| AppError::new(ErrorCode::Autostart, e.to_string()))?;
-    crate::autostart::set_enabled(&exe.to_string_lossy(), enabled)?;
-    {
-        let mut config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
-        config.settings.start_with_windows = enabled;
-        let _ = config.save(&app_state.config_path);
-    }
-    Ok(enabled)
-}
-
-/// Build a profile from the current Windows state ("Detect current").
-#[tauri::command]
-pub fn detect_current_profile() -> AppResult<ThemeProfile> {
-    theme::profile_from_current_state("Detected")
 }
 
 /// Open the Windows personalization settings page (colors).
 #[tauri::command]
 pub fn open_windows_settings() -> AppResult<()> {
-    open_url("ms-settings:personalization-colors".to_string())
-}
-
-/// Open an arbitrary URL with the default handler (used for the GitHub link).
-#[tauri::command]
-pub fn open_url(url: String) -> AppResult<()> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use windows::core::w;
 
-    let wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
     let result = unsafe {
         ShellExecuteW(
             None,
             w!("open"),
-            windows::core::PCWSTR(wide.as_ptr()),
+            w!("ms-settings:personalization-colors"),
             None,
             None,
             SW_SHOWNORMAL,
         )
     };
-    // ShellExecuteW returns an HINSTANCE; values <= 32 indicate failure.
     let code = result.0 as isize;
     if code <= 32 {
         return Err(AppError::new(
@@ -312,85 +205,10 @@ pub fn open_url(url: String) -> AppResult<()> {
     Ok(())
 }
 
-/// Collect diagnostic information as JSON (safe to copy/share).
+/// Hide the panel (the webview is released after a short idle period).
 #[tauri::command]
-pub fn get_diagnostics(app: AppHandle) -> String {
-    let app_state = app.state::<AppState>();
-    let config = app_state
-        .config
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
-    let current = theme::read_theme_state().ok();
-    let build = crate::registry::read_windows_build();
-
-    let diagnostics = serde_json::json!({
-        "app": {
-            "name": "Windows Theme Switcher",
-            "version": env!("CARGO_PKG_VERSION"),
-            "exe": std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-        },
-        "os": {
-            "build": build,
-            "windows11": build >= 22000,
-            "displayVersion": crate::registry::read_display_version(),
-        },
-        "currentTheme": current,
-        "registry": {
-            "appsUseLightTheme": crate::registry::read_hkcu_dword(crate::registry::PERSONALIZE_KEY, "AppsUseLightTheme").ok(),
-            "systemUsesLightTheme": crate::registry::read_hkcu_dword(crate::registry::PERSONALIZE_KEY, "SystemUsesLightTheme").ok(),
-            "enableTransparency": crate::registry::read_hkcu_dword(crate::registry::PERSONALIZE_KEY, "EnableTransparency").ok(),
-            "accentColor": crate::registry::read_hkcu_dword(crate::registry::DWM_KEY, "AccentColor").ok(),
-            "colorPrevalence": crate::registry::read_hkcu_dword(crate::registry::DWM_KEY, "ColorPrevalence").ok(),
-            "autostart": crate::autostart::is_enabled(),
-        },
-        "configPath": app_state.config_path.to_string_lossy(),
-        "config": config,
-        "logTail": crate::logger::tail(50),
-    });
-
-    serde_json::to_string_pretty(&diagnostics).unwrap_or_else(|_| "{}".to_string())
-}
-
-/// Clear the pending route after the UI consumed it.
-#[tauri::command]
-pub fn clear_pending_route(app: AppHandle) -> AppResult<()> {
-    let app_state = app.state::<AppState>();
-    if let Ok(mut pending) = app_state.pending_route.lock() {
-        *pending = None;
+pub fn hide_panel(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
     }
-    Ok(())
-}
-
-/// Reset configuration to defaults (keeps the current Windows theme).
-#[tauri::command]
-pub fn reset_config(app: AppHandle) -> AppResult<AppConfig> {
-    let app_state = app.state::<AppState>();
-    let config = AppConfig::default();
-    config.save(&app_state.config_path)?;
-
-    // Sync autostart to the reset value.
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = crate::autostart::set_enabled(
-            &exe.to_string_lossy(),
-            config.settings.start_with_windows,
-        );
-    }
-
-    *app_state.config.lock().unwrap_or_else(|e| e.into_inner()) = config.clone();
-    crate::tray::refresh(&app, &theme::read_theme_state().unwrap_or_else(|_| fallback_state()));
-    Ok(config)
-}
-
-/// Return the config file path (shown in Advanced settings).
-#[tauri::command]
-pub fn config_path(app: AppHandle) -> PathBuf {
-    app.state::<AppState>().config_path.clone()
-}
-
-/// Write a message from the frontend into the app log (used by the UI
-/// self-test to report layout/CSS diagnostics).
-#[tauri::command]
-pub fn log_debug(message: String) {
-    crate::logger::info(format!("[ui] {message}"));
 }

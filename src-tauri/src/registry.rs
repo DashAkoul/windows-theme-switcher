@@ -85,12 +85,6 @@ pub fn read_windows_build() -> u32 {
         .unwrap_or(0)
 }
 
-/// Read the display version (e.g. "24H2") when present.
-pub fn read_display_version() -> Option<String> {
-    read_hklm_string(NT_CURRENT_VERSION_KEY, "DisplayVersion")
-        .ok()
-        .flatten()
-}
 
 #[cfg(test)]
 mod tests {

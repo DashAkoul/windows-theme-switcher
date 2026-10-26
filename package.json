@@ -1,7 +1,7 @@
 {
   "name": "windows-theme-switcher",
   "private": true,
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "Switch Windows Light/Dark theme with one click from the system tray",
   "license": "GPL-3.0-only",
   "author": "DashAkoul",
@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.6.0",
-    "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-updater": "^2.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
