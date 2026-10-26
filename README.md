@@ -15,8 +15,8 @@ Dark   ──click tray icon──▶  Light
 
 - **یک کلیک = تغییر تم** — بدون باز کردن Settings ویندوز
 - **آیکون هوشمند**: ماه وقتی ویندوز روشن است (کلیک → تیره)، خورشید وقتی تیره است (کلیک → روشن)
-- **پاپ‌آپ کوچک (۳۴۰×۲۴۶)** — به‌جای پنجره کامل: فقط سوییچ Light/Dark، گزینه «Start with Windows» و لینک Settings ویندوز
-- **سبک**: ~۱۵MB در حالت tray (پنجره و WebView فقط هنگام نیاز ساخته می‌شود و با از دست دادن focus / پس از ۲ دقیقه بیکاری کاملاً آزاد می‌شود)
+- **پاپ‌آپ کوچک (۳۴۰×۲۳۲)** — به‌جای پنجره کامل: فقط سوییچ Light/Dark، گزینه «Start with Windows» و لینک Settings ویندوز
+- **سبک**: ~۱۳-۱۵MB در حالت tray (پنجره و WebView فقط هنگام نیاز ساخته می‌شود و با از دست دادن focus / پس از ۲ دقیقه بیکاری کاملاً آزاد می‌شود)
 - **تشخیص تغییر خارجی**: تغییر تم از Settings ویندوز فوراً شناسایی می‌شود (WM_SETTINGCHANGE)
 - **Single Instance**: اجرای دوباره، پنل نسخه فعال را نشان می‌دهد
 - **بدون Administrator** — همه عملیات در HKCU
@@ -54,7 +54,7 @@ npm run build          # تایپ‌چک + بیلد فرانت‌اند
 npm run tauri:build    # ساخت نصب‌کننده NSIS
 ```
 
-خروجی: `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.0.0_x64-setup.exe`
+خروجی: `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.0.1_x64-setup.exe`
 
 ## 🖱️ استفاده
 

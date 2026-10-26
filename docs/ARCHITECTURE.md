@@ -42,7 +42,7 @@
 
 1. **Performance و ROM/RAM**: تارگت کاربر «تقریباً نامحسوس بودن روی سیستم متوسط» است. الکترون این هدف را نقض می‌کند. تauri با بهره‌گیری از WebView2 (که از قبل روی ویندوز ۱۱ و اکثر ۱۰‌های به‌رو موجود است) حافظه بسیار کمتری می‌گیرد.
 2. **Native layer با Rust**: همه کارهای Registry، broadcast پیام‌ها، tray icon، و single-instance در Rust و با `windows` crate رسمی مایکروسافت انجام می‌شود — بدون شبیه‌سازی کلیک، بدون automation شکننده.
-3. **UI مدرن**: React + TypeScript + CSS آزاد → ظاهر Windows 11 Fluent-like (rounded corners، Mica/Acrylic، Segoe UI Variable) بدون محدودیت کنترل‌های قدیمی Win32.
+3. **UI مدرن**: React + TypeScript + CSS آزاد → ظاهر Windows 11 Fluent-like (rounded corners، Segoe UI Variable) بدون محدودیت کنترل‌های قدیمی Win32. از v2 بک‌دراپ سیستمی (Mica/Acrylic) استفاده نمی‌شود: پنل خودش سطوح Fluent دارد و این مسیر روی پنجره غیرشفاف WebView2 می‌توانست ناحیه کلاینت را مشکی کند.
 4. **Auto-update آماده**: `tauri-plugin-updater` با امضای minisign و endpoint روی GitHub Releases — معماری از روز اول آپدیت‌پذیر است.
 5. **امنیت**: CSP، allowlist مجوزها (capabilities)، عدم نیاز به Administrator (نصب per-user).
 
@@ -242,7 +242,7 @@ Exit
 
 ### 8.2 پنل پاپ‌آپ (تنها رابط کاربری)
 
-پنجرهٔ ثابت **۳۴۰×۲۴۶**، بدون decorations، `always_on_top`، `skip_taskbar`:
+پنجرهٔ ثابت **۳۴۰×۲۳۲**، بدون decorations، `always_on_top`، `skip_taskbar`:
 
 ```
 ┌──────────────────────────────────┐
@@ -264,7 +264,7 @@ Exit
 
 ### 8.5 Error UX
 
-اگر نوشتن Registry شکست بخورد: Toast با متن «Unable to change Windows theme.» + دکمه‌های **Retry** / **Open Windows Settings** / **Copy diagnostics**. برنامه crash نمی‌کند.
+اگر نوشتن Registry شکست بخورد، خطا به‌صورت **یک خط متن قرمز داخل خود پنل** زیر کارت‌ها نمایش داده می‌شود (بدون toast، dialog یا پنجره جدا). پیام خطا از `AppError` می‌آید و کد خطا + متن کوتاه را نشان می‌دهد؛ در صورت نیاز لینک «Windows theme settings…» کاربر را به مسیر درست هدایت می‌کند. برنامه crash نمی‌کند و پنل باز می‌ماند.
 
 ---
 
@@ -279,7 +279,7 @@ Exit
 | دستورات Shell ناامن | فقط `ShellExecuteW` با URI ثابت `ms-settings:` — بدون ترکیب ورودی کاربر |
 | Code signing | `.tauri/*.key` در gitignore؛ Release با امضای minisign؛ مستندات CI |
 | Auto-update امن | `tauri-plugin-updater` با pubkey در conf؛ بررسی صحت فایل (امضا) پیش از نصب؛ rollback با نگهداری نسخه قبلی توسط NSIS |
-| CSP | `default-src 'self'` در index.html؛ بدون remote script/font |
+| CSP | در `tauri.conf.json` (`app.security.csp`) تنظیم می‌شود، **نه** به‌صورت `<meta>` در HTML. دلیل: Tauri اسکریپت راه‌انداز IPC را inline تزریق می‌کند و یک meta CSP بدون nonce آن را بلاک می‌کرد (باگ صفحه مشکی v1.0.0). بدون remote script/font. |
 | Single instance | Named Mutex + FindWindow + SendMessage پیام ثبت‌شده (بدون pipe/socket) |
 
 ---
@@ -289,7 +289,8 @@ Exit
 - پلاگین `tauri-plugin-updater` در بک‌اند و `@tauri-apps/plugin-updater` در فرانت‌اند.
 - endpoint: `https://github.com/DashAkoul/windows-theme-switcher/releases/latest/download/latest.json`.
 - کلید عمومی minisign در `tauri.conf.json`؛ کلید خصوصی هرگز در repo نیست (`.gitignore`).
-- دکمه «Check for updates» در Advanced؛ اگر به‌رو باشد پیام «up to date»؛ در غیر این صورت دانلود + تأیید امضا + نصب.
+- بررسی آپدیت **بی‌صدا** است: هنگام باز شدن پنل یک `check()` در پس‌زمینه اجرا می‌شود و فقط اگر نسخه جدیدتری وجود داشته باشد، در فوتر لینک «Update to vX» ظاهر می‌شود. کلیک روی آن دانلود + تأیید امضا + نصب را انجام می‌دهد.
+- با `settings.checkUpdates = false` این بررسی کاملاً غیرفعال می‌شود (هیچ درخواست شبکه‌ای زده نمی‌شود).
 - CI (آینده): GitHub Action روی tag → build → sign → تولید `latest.json` + NSIS در Release.
 
 ---
@@ -301,11 +302,14 @@ Exit
 | 0 | اسکلت + مستندات | `main` |
 | 1 | Rust core: config/registry/theme/monitor + تست واحد | `feature/core-tray` |
 | 2 | Tray + commands + main wiring + single instance | `feature/core-tray` |
-| 3 | فرانت‌اند: onboarding + settings + editor + preview + i18n | `feature/settings-ui` |
-| 4 | آیکون‌ها + vibrancy + updater + dialog + تست نهایی + build | `feature/polish` |
+| 3 | فرانت‌اند v1: onboarding + settings + editor + preview + i18n | `feature/settings-ui` |
+| 4 | آیکون‌ها + updater + تست نهایی + build | `feature/polish` |
 | 5 | merge به `main` + tag `v1.0.0` + push | — |
+| 6 | v1.0.1: رفع هنگ، مصرف رم، تغییر زبان، سیل خطاها | `fix/performance-i18n` |
+| 7 | v1.0.2: رفع آیکون شفاف tray در Light mode | `fix/tray-icon-light` |
+| 8 | v2.0.0: پاپ‌آپ مینیمال، حذف i18n و صفحات اضافی، lazy window | `feat/v2-minimal-panel` |
 
-هر فاز با commit معناشار، تست (`cargo test` + `tsc --noEmit` + build) و merge بدون fast-forward به `develop` انجام می‌شود.
+هر فاز با commit معنادار، تست (`cargo test` + `tsc --noEmit` + build) و merge بدون fast-forward به `develop` انجام می‌شود.
 
 ---
 

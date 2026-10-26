@@ -21,11 +21,30 @@ mod theme;
 mod tray;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 pub use error::{AppError, ErrorCode};
+
+/// Milliseconds since the Unix epoch of the last `show_panel()` call.
+///
+/// Windows can deliver a `Focused(false)` event right after a window is
+/// shown, before it actually receives focus (foreground-lock rules). Without
+/// this guard the popup would hide itself instantly and a tray click would
+/// look like it did nothing.
+static LAST_SHOWN_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Grace period (ms) during which an early focus loss is ignored.
+const FOCUS_GRACE_MS: u64 = 700;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Global app handle, initialized in `setup()`. Used by the native message
 /// pump thread (which has no other way to reach Tauri).
@@ -132,7 +151,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Panel geometry (a compact popup, not a full application window).
 const PANEL_W: f64 = 340.0;
-const PANEL_H: f64 = 246.0;
+/// Panel height: tall enough for the cards, the toggle, the link, a two-line
+/// error message and the footer, without leaving a big empty gap.
+const PANEL_H: f64 = 232.0;
 
 /// Create the panel on demand (or return the existing one).
 ///
@@ -171,7 +192,17 @@ pub fn ensure_panel(app: &AppHandle) -> Option<WebviewWindow> {
             let window_for_events = window.clone();
             window.on_window_event(move |event| match event {
                 tauri::WindowEvent::Focused(false) => {
+                    // Ignore the spurious focus loss that can arrive while the
+                    // window is still becoming foreground right after `show()`.
+                    let since_shown = now_ms().saturating_sub(LAST_SHOWN_MS.load(Ordering::Relaxed));
+                    if since_shown < FOCUS_GRACE_MS {
+                        logger::info(format!(
+                            "ignoring early focus loss ({since_shown}ms after show)"
+                        ));
+                        return;
+                    }
                     let _ = window_for_events.hide();
+                    logger::info("panel hidden (focus lost)");
                     schedule_idle_destroy(app_for_events.clone());
                 }
                 tauri::WindowEvent::Destroyed => {
@@ -188,11 +219,22 @@ pub fn ensure_panel(app: &AppHandle) -> Option<WebviewWindow> {
     }
 }
 
+/// How long a hidden panel stays alive before its webview is released.
+const IDLE_DESTROY_SECS: u64 = 120;
+
+/// True while an idle-destroy timer is pending, so repeated hide events do
+/// not spawn one thread each.
+static DESTROY_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Destroy the hidden panel after a while so the WebView2 memory (which is
 /// large compared to the rest of the app) does not stay resident forever.
-fn schedule_idle_destroy(app: AppHandle) {
+pub(crate) fn schedule_idle_destroy(app: AppHandle) {
+    if DESTROY_SCHEDULED.swap(true, Ordering::SeqCst) {
+        return; // a timer is already pending
+    }
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(120));
+        std::thread::sleep(std::time::Duration::from_secs(IDLE_DESTROY_SECS));
+        DESTROY_SCHEDULED.store(false, Ordering::SeqCst);
         let app_for_main = app.clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(window) = app_for_main.get_webview_window("main") {
@@ -224,4 +266,6 @@ pub fn show_panel(app: &AppHandle) {
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
+    LAST_SHOWN_MS.store(now_ms(), Ordering::Relaxed);
+    logger::info("panel shown");
 }
