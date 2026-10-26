@@ -3,6 +3,12 @@
   "private": true,
   "version": "1.0.0",
   "description": "Switch Windows Light/Dark theme with one click from the system tray",
+  "license": "GPL-3.0-only",
+  "author": "DashAkoul",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DashAkoul/windows-theme-switcher"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

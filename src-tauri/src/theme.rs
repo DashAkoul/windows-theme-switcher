@@ -11,8 +11,9 @@
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::LPARAM;
 use windows::Win32::UI::WindowsAndMessaging::{
-    SendMessageTimeoutW, SystemParametersInfoW, HWND_BROADCAST, SMTO_ABORTIFHUNG, SPIF_SENDCHANGE,
-    SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER, WM_SETTINGCHANGE,
+    SendMessageTimeoutW, SystemParametersInfoW, HWND_BROADCAST, SMTO_ABORTIFHUNG,
+    SMTO_NOTIMEOUTIFNOTHUNG, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
+    WM_SETTINGCHANGE,
 };
 
 use crate::config::ThemeProfile;
@@ -117,22 +118,29 @@ pub fn read_theme_state() -> AppResult<ThemeState> {
 
 /// Broadcast `WM_SETTINGCHANGE` so Explorer and all apps pick up the change
 /// immediately - the same mechanism the Settings app uses.
+///
+/// The timeout is deliberately short (1.5s): the broadcast is fire-and-forget
+/// for the UI, and a hung receiver must never stall a theme switch.
 pub fn broadcast_theme_change() -> AppResult<()> {
     let payload: Vec<u16> = IMMERSIVE_COLOR_SET.encode_utf16().chain(std::iter::once(0)).collect();
     let mut result: usize = 0;
+    let started = std::time::Instant::now();
     unsafe {
         SendMessageTimeoutW(
             HWND_BROADCAST,
             WM_SETTINGCHANGE,
             Default::default(),
             LPARAM(payload.as_ptr() as isize),
-            SMTO_ABORTIFHUNG,
-            5000,
+            SMTO_ABORTIFHUNG | SMTO_NOTIMEOUTIFNOTHUNG,
+            1500,
             Some(&mut result),
         );
     }
-    // SendMessageTimeoutW returns the LRESULT; a zero result with a timeout
-    // is not fatal for a broadcast (some receivers may be hung).
+    let elapsed = started.elapsed().as_millis();
+    if elapsed > 500 {
+        crate::logger::warn(format!("WM_SETTINGCHANGE broadcast took {elapsed}ms"));
+    }
+    // A zero result (timeout) is not fatal: some receivers may be hung.
     Ok(())
 }
 

@@ -71,6 +71,7 @@ pub fn run() {
             commands::clear_pending_route,
             commands::reset_config,
             commands::config_path,
+            commands::log_debug,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -117,9 +118,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         e.to_string()
     })?;
 
-    // Main window: effects, visibility and close-to-tray behavior.
+    // Main window: visibility and close-to-tray behavior.
     if let Some(window) = app.get_webview_window("main") {
-        apply_window_effects(&window, &config.settings);
         setup_window_behavior(window.clone());
 
         if !config.settings.onboarding_completed {
@@ -139,30 +139,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         config_path.display()
     ));
     Ok(())
-}
-
-/// Apply Mica (Windows 11) or Acrylic (Windows 10) to the main window when
-/// transparency is enabled in settings. Failures are non-fatal.
-fn apply_window_effects(window: &WebviewWindow, settings: &config::Settings) {
-    if !settings.transparency {
-        return;
-    }
-    let dark = match settings.ui_theme {
-        config::UiTheme::Dark => true,
-        config::UiTheme::Light => false,
-        config::UiTheme::System => !crate::theme::read_theme_state()
-            .map(|s| s.app_mode_light)
-            .unwrap_or(false),
-    };
-
-    let build = registry::read_windows_build();
-    if build >= 22000 {
-        if let Err(e) = window_vibrancy::apply_mica(window, Some(dark)) {
-            logger::warn(format!("apply_mica failed: {e}"));
-        }
-    } else if let Err(e) = window_vibrancy::apply_acrylic(window, Some((0x20, 0x20, 0x20, 0xFF))) {
-        logger::warn(format!("apply_acrylic failed: {e}"));
-    }
 }
 
 /// Close button minimizes to tray instead of quitting; the tray "Exit"

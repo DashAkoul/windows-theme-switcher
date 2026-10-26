@@ -100,4 +100,26 @@ Auto Day/Night · Schedule · Sunrise/Sunset · Hotkeys · Custom profiles (Work
 
 ## 📄 لایسنس
 
-MIT
+این پروژه تحت **GNU General Public License v3.0 (GPL-3.0)** منتشر می‌شود — یک لایسنس **کپی‌لفت** قوی.
+
+- استفاده، مطالعه، تغییر و توزیع آزاد است.
+- هر نسخهٔ تغییریافته یا مشتق‌شده باید **تحت همان لایسنس GPL-3.0** و **همراه با کد منبع** توزیع شود.
+- هیچ‌کس نمی‌تواند این پروژه (یا مشتقات آن) را به نرم‌افزار اختصاصی/بسته تبدیل کند.
+
+متن کامل: [`LICENSE`](LICENSE) — Copyright © 2026 DashAkoul
+
+<div dir="ltr">
+
+```
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+```
+
+</div>

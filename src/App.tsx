@@ -9,18 +9,22 @@ import { SettingsView } from "./views/SettingsView";
 import { AboutView } from "./views/AboutView";
 import { LanguageProvider, useI18n } from "./i18n";
 import { api, onSystemThemeChanged, onThemeApplied, onThemeError, onTrayNavigate } from "./api";
+import { reportUiDiagnostics } from "./selfTest";
 import type { AppConfig, AppStateResponse, ThemeState } from "./types";
 
 type View = "onboarding" | "settings" | "about";
 
 export default function App() {
   const [state, setState] = useState<AppStateResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   // ------------------------------------------------------------------
   // Initial load
   // ------------------------------------------------------------------
   useEffect(() => {
     let disposed = false;
+    setLoadError(null);
     (async () => {
       try {
         const s = await api.getState();
@@ -31,21 +35,28 @@ export default function App() {
         if (s.pendingRoute) {
           await api.clearPendingRoute();
         }
-      } catch {
-        // A failed initial load falls back to the loading shell; event-based
-        // error toasts cover runtime failures.
+      } catch (err) {
+        // Never leave the user on a blank window: show an actionable error.
+        console.error("[wts] state load failed", err);
+        if (!disposed) {
+          const msg = (err as { message?: string }).message ?? String(err);
+          setLoadError(msg);
+        }
       }
     })();
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [attempt]);
 
   if (!state) {
     // Render a minimal shell until the state arrives (usually < 100ms).
     return (
       <LanguageProvider lang="en">
-        <LoadingShell />
+        <LoadingShell
+          error={loadError}
+          onRetry={() => setAttempt((n) => n + 1)}
+        />
       </LanguageProvider>
     );
   }
@@ -57,13 +68,31 @@ export default function App() {
   );
 }
 
-function LoadingShell() {
+function LoadingShell({
+  error,
+  onRetry,
+}: {
+  error: string | null;
+  onRetry: () => void;
+}) {
   const { t } = useI18n();
   return (
     <div className="app-shell">
       <TitleBar title={t("app.name")} />
-      <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
-        <span className="muted">…</span>
+      <div style={{ flex: 1, display: "grid", placeItems: "center", padding: 24 }}>
+        {error ? (
+          <div style={{ maxWidth: 460, textAlign: "center" }}>
+            <p style={{ fontWeight: 600, marginBottom: 6 }}>{t("error.title")}</p>
+            <p className="muted" style={{ marginBottom: 14, wordBreak: "break-word" }}>
+              {error}
+            </p>
+            <button className="btn primary" onClick={onRetry}>
+              {t("error.retry")}
+            </button>
+          </div>
+        ) : (
+          <span className="muted">…</span>
+        )}
       </div>
     </div>
   );
@@ -146,7 +175,11 @@ function AppShell({ state, setState }: ShellProps) {
     document.documentElement.lang = settings.language;
     document.documentElement.dir = settings.language === "fa" ? "rtl" : "ltr";
     document.documentElement.classList.toggle("no-anim", !settings.animations);
-  }, [state]);
+
+    // Dev-only layout diagnostics (no-op in release builds).
+    const id = window.setTimeout(() => reportUiDiagnostics(`view=${view}`), 600);
+    return () => window.clearTimeout(id);
+  }, [state, view]);
 
   // ------------------------------------------------------------------
   // Handlers

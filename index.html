@@ -4,12 +4,36 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/tray-light.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'" />
     <title>Windows Theme Switcher</title>
+    <!--
+      NOTE: no CSP <meta> here on purpose. Tauri injects its own IPC
+      bootstrap script; a meta CSP without a nonce blocks it, which leaves
+      the webview blank (black). The CSP is configured in tauri.conf.json
+      (app.security.csp) so Tauri can add the required nonces/hashes.
+    -->
     <style>
-      /* Avoid white flash before the webview theme is applied */
-      html, body { margin: 0; padding: 0; background: #f3f3f3; }
-      html[data-theme="dark"] body { background: #202020; }
+      /* Avoid a white flash before the app theme is applied, and guarantee
+         a readable surface even if the bundle fails to execute. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #f3f3f3;
+        color: #1a1a1a;
+        font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+      }
+      html[data-theme="dark"],
+      html[data-theme="dark"] body {
+        background: #202020;
+        color: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme]) body {
+          background: #202020;
+          color: #ffffff;
+        }
+      }
     </style>
   </head>
   <body>
