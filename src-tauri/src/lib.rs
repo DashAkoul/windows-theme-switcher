@@ -15,6 +15,7 @@ mod commands;
 mod config;
 mod error;
 mod logger;
+mod memory;
 mod monitor;
 mod registry;
 mod theme;
@@ -146,6 +147,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         registry::read_windows_build(),
         config_path.display()
     ));
+
+    // Nothing else is going to run until the user clicks the tray icon, so
+    // hand the resident pages back once the startup burst is over.
+    memory::trim_soon(1500);
     Ok(())
 }
 
@@ -204,9 +209,17 @@ pub fn ensure_panel(app: &AppHandle) -> Option<WebviewWindow> {
                     let _ = window_for_events.hide();
                     logger::info("panel hidden (focus lost)");
                     schedule_idle_destroy(app_for_events.clone());
+                    // Hidden but not destroyed yet: page out what the webview
+                    // touched so the process does not sit at ~45 MB for the
+                    // two minutes before the idle destroy fires.
+                    memory::trim_soon(500);
                 }
                 tauri::WindowEvent::Destroyed => {
                     logger::info("panel destroyed (webview memory released)");
+                    // The WebView2 runtime pages are still mapped in this
+                    // process; page them out so the tray drops back to the
+                    // kilobyte range instead of ~45 MB.
+                    memory::trim_soon(300);
                 }
                 _ => {}
             });

@@ -120,6 +120,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                     crate::logger::error(format!("tray toggle failed: {e}"));
                     let _ = tray.app_handle().emit("theme-error", e.message.clone());
                 }
+                // The toggle rebuilds the menu and swaps the icon; release
+                // those pages once the broadcast has finished.
+                crate::memory::trim_soon(3500);
             }
         })
         .build(app)?;
@@ -157,6 +160,13 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             app.exit(0);
         }
         _ => {}
+    }
+
+    // Menu handling allocates (menu rebuild, icon swap, registry writes).
+    // Give the pages back once the work has settled, so the process goes
+    // back to a few hundred KB while it waits for the next click.
+    if id != "exit" && id != "panel" {
+        crate::memory::trim_soon(2500);
     }
 }
 
