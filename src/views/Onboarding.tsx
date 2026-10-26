@@ -4,6 +4,7 @@ import { useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useI18n } from "../i18n";
 import { MoonIcon, SunIcon } from "../components/controls";
+import { isTauri } from "../api";
 
 interface Props {
   onFinish: (openSettings: boolean) => void;
@@ -80,5 +81,6 @@ export function Onboarding({ onFinish }: Props) {
 
 /** Hide the window (move to tray). */
 export function hideToTray() {
+  if (!isTauri()) return;
   void getCurrentWindow().hide();
 }
