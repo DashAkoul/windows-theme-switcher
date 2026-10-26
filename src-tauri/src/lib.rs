@@ -54,7 +54,7 @@ pub fn run() {
         std::process::exit(0);
     }
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(setup)
@@ -73,8 +73,18 @@ pub fn run() {
             commands::config_path,
             commands::log_debug,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_app, event| {
+        // Closing the window destroys it (frees the whole WebView2 memory
+        // footprint) - the app keeps running in the tray until "Exit".
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+            if code.is_none() {
+                api.prevent_exit();
+            }
+        }
+    });
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -118,19 +128,20 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         e.to_string()
     })?;
 
-    // Main window: visibility and close-to-tray behavior.
-    if let Some(window) = app.get_webview_window("main") {
-        setup_window_behavior(window.clone());
-
-        if !config.settings.onboarding_completed {
+    // Main window is created LAZILY (see `ensure_main_window`): a tray-only
+    // start must not pay the ~400 MB WebView2 footprint. It is only created
+    // when the user actually needs the UI.
+    let need_window = !config.settings.onboarding_completed || !config.settings.launch_minimized;
+    if need_window {
+        if let Some(window) = ensure_main_window(&handle) {
             let _ = window.show();
-            let _ = window.set_focus();
-            logger::info("showing onboarding window (first run)");
-        } else if !config.settings.launch_minimized {
-            let _ = window.show();
-        } else {
-            logger::info("starting minimized to tray");
+            if !config.settings.onboarding_completed {
+                let _ = window.set_focus();
+                logger::info("showing onboarding window (first run)");
+            }
         }
+    } else {
+        logger::info("starting minimized to tray (no webview)");
     }
 
     logger::info(format!(
@@ -141,15 +152,44 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Close button minimizes to tray instead of quitting; the tray "Exit"
-/// menu item is the only way to quit.
-fn setup_window_behavior(window: WebviewWindow) {
-    let window_for_events = window.clone();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            let _ = window_for_events.hide();
-            logger::info("main window hidden to tray");
+/// Create the main window on demand (or return the existing one).
+///
+/// The window is intentionally **not** declared in `tauri.conf.json`: a
+/// tray-only start would otherwise spin up WebView2 (~400 MB across its
+/// helper processes) even though no UI is needed. Closing the window
+/// destroys it, which releases that memory again; the app keeps running in
+/// the tray and recreates the window when the user asks for it.
+pub fn ensure_main_window(app: &AppHandle) -> Option<WebviewWindow> {
+    if let Some(window) = app.get_webview_window("main") {
+        return Some(window);
+    }
+
+    let built = tauri::WebviewWindowBuilder::new(
+        app,
+        "main",
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("Windows Theme Switcher")
+    .inner_size(940.0, 680.0)
+    .min_inner_size(760.0, 560.0)
+    .decorations(false)
+    .center()
+    .visible(false)
+    .shadow(true)
+    .build();
+
+    match built {
+        Ok(window) => {
+            window.on_window_event(|event| {
+                if let tauri::WindowEvent::Destroyed = event {
+                    logger::info("main window destroyed (webview memory released)");
+                }
+            });
+            Some(window)
         }
-    });
+        Err(e) => {
+            logger::error(format!("failed to create main window: {e}"));
+            None
+        }
+    }
 }

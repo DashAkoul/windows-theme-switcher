@@ -12,7 +12,7 @@
 //! `FindWindowW`) with a custom class name. A dedicated thread runs the
 //! message loop; it never blocks the Tauri main thread.
 
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 use windows::Win32::Foundation::{GetLastError, SetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM, WIN32_ERROR};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
@@ -102,6 +102,20 @@ fn wide_ptr_to_string(ptr: *const u16) -> String {
     }
 }
 
+/// Last theme state we reacted to. Windows broadcasts `WM_SETTINGCHANGE`
+/// very often (and echoes our own broadcasts), so we only refresh the tray
+/// and notify the UI when the state actually changed. This keeps idle CPU
+/// and handle churn near zero.
+static LAST_STATE: std::sync::Mutex<Option<ThemeState>> = std::sync::Mutex::new(None);
+
+/// Record the state that was just applied by the app itself, so the echo of
+/// our own broadcast is recognized as "no change".
+pub fn note_applied_state(state: &ThemeState) {
+    if let Ok(mut last) = LAST_STATE.lock() {
+        *last = Some(state.clone());
+    }
+}
+
 /// Called when Windows broadcasts a theme change from any source.
 fn handle_external_theme_change() {
     let app = match APP_HANDLE.get() {
@@ -115,6 +129,17 @@ fn handle_external_theme_change() {
             return;
         }
     };
+
+    // Cheap no-op guard: nothing changed (or this is the echo of our own
+    // broadcast), so do not rebuild the tray menu or spam the frontend.
+    {
+        let mut last = LAST_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        if last.as_ref() == Some(&state) {
+            return;
+        }
+        *last = Some(state.clone());
+    }
+
     crate::logger::info(format!(
         "external theme change detected: app_mode={}",
         if state.app_mode_light { "light" } else { "dark" }
@@ -124,17 +149,23 @@ fn handle_external_theme_change() {
 }
 
 /// Show and focus the main window (called from the signal thread).
+///
+/// Window creation must happen on the main thread, so the work is posted to
+/// the event loop instead of running on this thread.
 fn show_main_window() {
     let app = match APP_HANDLE.get() {
         Some(a) => a,
         None => return,
     };
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-        let _ = app.emit("tray://navigate", "settings");
-    }
+    let app_for_main = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = crate::ensure_main_window(&app_for_main) {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+        let _ = app_for_main.emit("tray://navigate", "settings");
+    });
 }
 
 /// Start the message pump thread. Must be called once during setup, after

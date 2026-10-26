@@ -183,10 +183,14 @@ export function ThemeEditor({ profileId, profile, onSave, onApplied, onError }: 
           </div>
 
           <div className="btn-row mt-16">
-            <button className="btn primary" onClick={save} disabled={!dirty}>
+            <button
+              className="btn primary"
+              onClick={save}
+              disabled={!dirty || draft.name.trim().length === 0}
+            >
               {t("common.save")}
             </button>
-            <button className="btn" onClick={apply}>
+            <button className="btn" onClick={apply} disabled={draft.name.trim().length === 0}>
               {t("profile.applyNow")}
             </button>
             <button className="btn" onClick={detect}>

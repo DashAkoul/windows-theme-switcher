@@ -1,6 +1,6 @@
 // Reusable form controls styled to match Windows 11.
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export function Toggle({
   checked,
@@ -90,22 +90,40 @@ export function ColorField({
   onChange: (v: string) => void;
   ariaLabel: string;
 }) {
+  // Keep a local draft so partial input ("#00") is never persisted: the
+  // backend rejects invalid hex and every keystroke used to raise an error.
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = (next: string) => {
+    setDraft(next);
+    if (/^#[0-9a-fA-F]{6}$/.test(next)) {
+      onChange(next.toUpperCase());
+    }
+  };
+
+  const invalid = !/^#[0-9a-fA-F]{6}$/.test(draft);
+
   return (
     <div className="color-picker">
       <input
         className="color-swatch"
         type="color"
-        value={value}
+        value={/^#[0-9a-fA-F]{6}$/.test(draft) ? draft : value}
         aria-label={ariaLabel}
-        onChange={(e) => onChange(e.target.value.toUpperCase())}
+        onChange={(e) => commit(e.target.value.toUpperCase())}
       />
       <input
         className="text-input color-hex"
         type="text"
-        value={value}
+        value={draft}
         aria-label={`${ariaLabel} hex`}
         maxLength={7}
-        onChange={(e) => onChange(e.target.value.toUpperCase())}
+        style={invalid ? { borderColor: "var(--danger)" } : undefined}
+        onChange={(e) => commit(e.target.value)}
       />
     </div>
   );
