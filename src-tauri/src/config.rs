@@ -129,7 +129,6 @@ pub struct AppConfig {
     pub version: u32,
     pub settings: Settings,
     pub profiles: HashMap<String, ThemeProfile>,
-    pub last_active_profile: Option<String>,
 }
 
 pub const CONFIG_VERSION: u32 = 1;
@@ -163,7 +162,6 @@ impl Default for AppConfig {
             version: CONFIG_VERSION,
             settings: Settings::default(),
             profiles,
-            last_active_profile: None,
         }
     }
 }
@@ -328,7 +326,39 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("\"startWithWindows\""));
         assert!(json.contains("\"windowsMode\""));
-        assert!(json.contains("\"lastActiveProfile\""));
+        assert!(json.contains("\"checkUpdates\""));
+    }
+
+    #[test]
+    fn unknown_fields_from_older_configs_are_ignored() {
+        // v1/v2.0 configs carried `language`, `uiTheme`, `onboardingCompleted`
+        // and `lastActiveProfile`; loading them must not fail.
+        let dir = std::env::temp_dir().join("wts_config_test_legacy");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("config.json");
+        fs::write(
+            &path,
+            r#"{
+              "version": 1,
+              "settings": { "startWithWindows": false, "checkUpdates": true,
+                            "language": "fa", "uiTheme": "system" },
+              "profiles": {
+                "light": { "name": "Day", "windowsMode": "light", "appMode": "light",
+                           "transparency": true, "accentColor": null, "wallpaper": null },
+                "dark":  { "name": "Night", "windowsMode": "dark", "appMode": "dark",
+                           "transparency": true, "accentColor": null, "wallpaper": null }
+              },
+              "lastActiveProfile": "dark",
+              "onboardingCompleted": true
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = AppConfig::load(&path).unwrap();
+        assert_eq!(loaded.settings.start_with_windows, false);
+        assert!(loaded.profile(LIGHT_PROFILE_ID).is_some());
+
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

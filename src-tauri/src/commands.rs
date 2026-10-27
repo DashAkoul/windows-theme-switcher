@@ -57,11 +57,9 @@ pub fn apply_profile_inner(app: &AppHandle, id: &str) -> AppResult<ThemeState> {
         started.elapsed().as_millis()
     ));
 
-    {
-        let mut config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
-        config.last_active_profile = Some(id.to_string());
-        let _ = config.save(&app_state.config_path);
-    }
+    // No config write here on purpose: the profile id is not persisted (the
+    // live Windows state is the source of truth), and saving on every toggle
+    // meant a disk write per click while holding the config mutex.
 
     // Remember this state so the echo of our own WM_SETTINGCHANGE broadcast
     // does not trigger a second tray rebuild.
@@ -77,18 +75,24 @@ pub fn toggle_autostart_inner(app: &AppHandle) -> AppResult<bool> {
         .map_err(|e| AppError::new(ErrorCode::Autostart, e.to_string()))?;
     let exe_path = exe.to_string_lossy().to_string();
 
-    let new_value = {
-        let mut config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
-        config.settings.start_with_windows = !config.settings.start_with_windows;
-        config.settings.start_with_windows
-    };
-
-    crate::autostart::set_enabled(&exe_path, new_value)?;
-    let _ = app_state
+    // Read the current value without mutating it: the in-memory state must not
+    // claim a value the registry refused to accept.
+    let new_value = !app_state
         .config
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .save(&app_state.config_path);
+        .settings
+        .start_with_windows;
+
+    crate::autostart::set_enabled(&exe_path, new_value)?;
+
+    // Update memory under the lock, but write the file outside it.
+    let snapshot = {
+        let mut config = app_state.config.lock().unwrap_or_else(|e| e.into_inner());
+        config.settings.start_with_windows = new_value;
+        config.clone()
+    };
+    let _ = snapshot.save(&app_state.config_path);
 
     crate::logger::info(format!("autostart set to {new_value}"));
 
@@ -208,15 +212,4 @@ pub fn open_windows_settings() -> AppResult<()> {
         ));
     }
     Ok(())
-}
-
-/// Hide the panel (the webview is released after a short idle period).
-#[tauri::command]
-pub fn hide_panel(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
-    }
-    // Hiding from the ✕ button may not produce a focus event, so make sure
-    // the idle timer that releases the webview is armed here too.
-    crate::schedule_idle_destroy(app);
 }

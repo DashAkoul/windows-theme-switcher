@@ -12,7 +12,6 @@ use serde::Serialize;
 pub enum ErrorCode {
     RegistryRead,
     RegistryWrite,
-    Broadcast,
     Wallpaper,
     ConfigRead,
     ConfigWrite,
@@ -21,7 +20,6 @@ pub enum ErrorCode {
     ProfileNotFound,
     Io,
     WindowsApi,
-    Updater,
 }
 
 /// Application-wide error type.
