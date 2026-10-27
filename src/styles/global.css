@@ -125,6 +125,10 @@ button {
   gap: 10px;
   padding: 2px 12px 10px;
   min-height: 0;
+  /* Safety net: at a very large Windows text-scaling factor the content can
+     exceed the fixed panel height. Scroll instead of silently clipping. */
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 /* ------------------------------------------------------------------ */
@@ -262,6 +266,8 @@ button {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  /* …but let the user select and copy the message for a bug report. */
+  user-select: text;
 }
 
 .error-detail {
