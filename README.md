@@ -66,7 +66,7 @@ npm run build          # تایپ‌چک + بیلد فرانت‌اند
 npm run tauri:build    # ساخت نصب‌کننده NSIS
 ```
 
-خروجی: `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.1.1_x64-setup.exe`
+خروجی: `src-tauri/target/release/bundle/nsis/Windows Theme Switcher_2.1.2_x64-setup.exe`
 
 ## 🖱️ استفاده
 
