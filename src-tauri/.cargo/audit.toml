@@ -1,0 +1,26 @@
+# cargo-audit configuration.
+#
+# Run from this directory:  cargo audit
+#
+# Every entry in `ignore` needs a reason here, so the decision is reviewable
+# instead of silent.
+
+[advisories]
+ignore = [
+    # zip 4.6.1 - symlink traversal / SUID bits while *extracting* a malicious
+    # archive (RUSTSEC-2026-0367, -0368, -0369).
+    #
+    # zip is pulled in by tauri-plugin-updater, which uses it only to unpack
+    # the downloaded update on Windows. That path is not reachable with
+    # untrusted input: `Update::install` calls `verify()` (minisign signature
+    # against the pubkey in tauri.conf.json) *before* `install_inner`, and the
+    # archive itself is fetched over HTTPS from this project's own GitHub
+    # release. Producing an archive that reaches `ZipArchive::extract` therefore
+    # requires our private signing key, at which point the attacker can ship
+    # any installer they like.
+    #
+    # Revisit when tauri-plugin-updater moves to zip >= 9 (the fixed major).
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+]
