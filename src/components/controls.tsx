@@ -1,5 +1,29 @@
 // Shared controls for the panel (icons + a small toggle).
 
+/**
+ * Title bar of the popup: drag region, app icon, title and the close button.
+ *
+ * Shared so the error screen has the same chrome as the normal panel - it used
+ * to render without a header, which left the user with a popup that had no ✕
+ * and could only be dismissed by clicking outside.
+ */
+export function PanelHeader({ onClose }: { onClose: () => void }) {
+  return (
+    <header className="panel-head" data-tauri-drag-region>
+      <img className="panel-logo" src="/app-icon.svg" alt="" draggable={false} />
+      <span className="panel-title" data-tauri-drag-region>
+        Windows Theme Switcher
+      </span>
+      <button className="panel-close" title="Close" onClick={onClose}>
+        <svg viewBox="0 0 12 12" aria-hidden="true">
+          <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" stroke="currentColor" strokeWidth="1.3" />
+          <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </button>
+    </header>
+  );
+}
+
 export function Toggle({
   checked,
   onChange,

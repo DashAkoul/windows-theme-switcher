@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, closePanel, errorMessage, isTauri, onThemeChanged, onThemeError } from "../api";
-import { MoonIcon, SunIcon, Toggle } from "../components/controls";
+import { MoonIcon, PanelHeader, SunIcon, Toggle } from "../components/controls";
 import type { AppStateResponse } from "../types";
 import { DARK_PROFILE_ID, LIGHT_PROFILE_ID } from "../types";
 
@@ -100,18 +100,7 @@ export function Panel({ initial }: { initial: AppStateResponse }) {
 
   return (
     <div className="panel">
-      <header className="panel-head" data-tauri-drag-region>
-        <img className="panel-logo" src="/app-icon.svg" alt="" draggable={false} />
-        <span className="panel-title" data-tauri-drag-region>
-          Windows Theme Switcher
-        </span>
-        <button className="panel-close" title="Close" onClick={closePanel}>
-          <svg viewBox="0 0 12 12" aria-hidden="true">
-            <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" stroke="currentColor" strokeWidth="1.3" />
-            <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" stroke="currentColor" strokeWidth="1.3" />
-          </svg>
-        </button>
-      </header>
+      <PanelHeader onClose={closePanel} />
 
       <div className="panel-body">
         <div className="mode-grid" role="radiogroup" aria-label="Windows theme">

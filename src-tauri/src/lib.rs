@@ -265,6 +265,37 @@ fn schedule_idle_destroy(app: AppHandle) {
     });
 }
 
+/// The monitor the popup should appear on.
+///
+/// The panel is created hidden at an undefined position, so
+/// `current_monitor()` answers for wherever Windows happened to place it -
+/// on a multi-monitor setup that is usually the primary screen, not the one
+/// whose tray icon was just clicked. The monitor under the cursor is the
+/// right answer, with the old behaviour as a fallback.
+fn target_monitor(app: &AppHandle, window: &WebviewWindow) -> Option<tauri::Monitor> {
+    if let Ok(cursor) = app.cursor_position() {
+        let (cx, cy) = (cursor.x as i32, cursor.y as i32);
+        if let Ok(monitors) = app.available_monitors() {
+            for monitor in monitors {
+                let pos = monitor.position();
+                let size = monitor.size();
+                let inside = cx >= pos.x
+                    && cy >= pos.y
+                    && cx < pos.x + size.width as i32
+                    && cy < pos.y + size.height as i32;
+                if inside {
+                    return Some(monitor);
+                }
+            }
+        }
+    }
+    window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
+}
+
 /// Show the panel as a tray popup: positioned above the taskbar in the
 /// bottom-right corner, focused, and closed again when it loses focus.
 pub fn show_panel(app: &AppHandle) {
@@ -273,7 +304,7 @@ pub fn show_panel(app: &AppHandle) {
     };
 
     // Bottom-right of the work area, a few pixels above the taskbar.
-    if let Ok(Some(monitor)) = window.current_monitor() {
+    if let Some(monitor) = target_monitor(app, &window) {
         let scale = monitor.scale_factor();
         let area = monitor.work_area();
         let x = area.position.x as f64 + area.size.width as f64 - PANEL_W * scale - 12.0 * scale;

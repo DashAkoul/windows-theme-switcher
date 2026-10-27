@@ -4632,7 +4632,7 @@ dependencies = [
 
 [[package]]
 name = "windows-theme-switcher"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "serde",
  "serde_json",
