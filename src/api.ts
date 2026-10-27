@@ -33,7 +33,6 @@ function mockState(): AppStateResponse {
           wallpaper: null,
         },
       },
-      lastActiveProfile: null,
     },
     current: {
       appModeLight: false,
@@ -62,10 +61,6 @@ export const api = {
   openWindowsSettings(): Promise<void> {
     if (!isTauri()) return Promise.resolve();
     return invoke<void>("open_windows_settings");
-  },
-  hidePanel(): Promise<void> {
-    if (!isTauri()) return Promise.resolve();
-    return invoke<void>("hide_panel");
   },
 };
 

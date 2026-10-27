@@ -1,5 +1,5 @@
 /* Windows Theme Switcher v2 - minimal tray popup.
-   The panel is a fixed 340x246 window: everything must fit without scrolling. */
+   The panel is a fixed 340x232 window: everything must fit without scrolling. */
 
 :root {
   --font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
@@ -256,6 +256,11 @@ button {
   color: var(--danger);
   font-size: 11.5px;
   line-height: 1.35;
+  /* The panel has a fixed height and no scrolling: clamp instead of letting a
+     long message push the footer out of the window. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
 }
 
@@ -274,4 +279,14 @@ button {
   color: var(--text-dim);
   font-size: 10px;
   opacity: 0.75;
+}
+
+/* Respect the system "reduce motion" preference. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

@@ -21,7 +21,6 @@ export interface AppConfig {
   version: number;
   settings: Settings;
   profiles: Record<string, ThemeProfile>;
-  lastActiveProfile: string | null;
 }
 
 export interface ThemeState {

@@ -87,7 +87,6 @@ pub fn run() {
             commands::apply_profile,
             commands::save_settings,
             commands::open_windows_settings,
-            commands::hide_panel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -247,7 +246,7 @@ static DESTROY_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 
 /// Destroy the hidden panel after a while so the WebView2 memory (which is
 /// large compared to the rest of the app) does not stay resident forever.
-pub(crate) fn schedule_idle_destroy(app: AppHandle) {
+fn schedule_idle_destroy(app: AppHandle) {
     if DESTROY_SCHEDULED.swap(true, Ordering::SeqCst) {
         return; // a timer is already pending
     }

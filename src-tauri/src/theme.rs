@@ -177,15 +177,35 @@ impl Drop for ApplyGuard {
     }
 }
 
+/// How long to wait for an in-flight apply before giving up (ms).
+///
+/// The apply path itself is ~1 ms, so this only has to cover a slow registry
+/// write. It stays short on purpose: the callers (tray click, IPC command)
+/// run on the main thread, so a long wait would freeze the panel.
+const APPLY_WAIT_MS: u64 = 25;
+
 /// Apply a theme profile to Windows. All-or-nothing per setting: if a write
 /// fails, remaining writes are still attempted and the first error is
 /// returned after the broadcast.
 pub fn apply_profile(profile: &ThemeProfile) -> AppResult<ThemeState> {
     profile.validate()?;
 
-    let Some(_guard) = ApplyGuard::acquire() else {
-        // Another apply is already in flight. Report the live state instead
-        // of queuing a second (potentially very slow) notification.
+    // A tray click and a panel click can race. Waiting briefly is better than
+    // silently dropping the second request (which used to leave the UI showing
+    // the state of the *other* click).
+    let mut guard = ApplyGuard::acquire();
+    if guard.is_none() {
+        let step = std::time::Duration::from_millis(5);
+        for _ in 0..(APPLY_WAIT_MS / 5) {
+            std::thread::sleep(step);
+            guard = ApplyGuard::acquire();
+            if guard.is_some() {
+                break;
+            }
+        }
+    }
+    let Some(_guard) = guard else {
+        // Still busy: report the live state rather than lying about ours.
         return read_theme_state();
     };
 
